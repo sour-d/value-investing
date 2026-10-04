@@ -82,3 +82,19 @@ appear as a new entrant on every single run.
 Tier 1 clears every gate. Tiers below allow limited failures and apply a
 quality-score floor, so a near-miss is ranked rather than discarded. Tiers exist
 to order a research queue, never to relax G0 or G5.
+
+## Where this sits in the loop
+
+```bash
+uv run stocks inspect      # is the data fresh enough to trust a rerun?
+uv run stocks screen       # evaluate; persists the run
+uv run stocks export       # write analysis/passers.md and latest.json
+```
+
+`analysis/latest.json` is the machine-readable record of the latest run;
+`analysis/passers.md` is the same run as a table. Both are committed, so the next
+session compares against the previous run instead of re-deriving it.
+
+If a rerun reports an unexpected entrant or exit, check `config_hash` first — if
+the thresholds changed, the delta describes your config edit, not the business.
+See `analysis/runs.md`.

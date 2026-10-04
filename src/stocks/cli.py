@@ -85,7 +85,19 @@ def build_parser() -> argparse.ArgumentParser:
     init_p.add_argument("--bootstrap", action="store_true",
                         help="also import the baseline NIFTY SMALLCAP 250 data "
                              "(requires /tmp/opencode artefacts)")
-    sub.add_parser("bootstrap", help="import baseline data into an existing database")
+    ingest = sub.add_parser(
+        "ingest",
+        help="load what an MCP fetch put in data/inbox/ into the database",
+    )
+    ingest.add_argument("--inbox", help="override the inbox directory")
+    sub.add_parser(
+        "export",
+        help="write git-tracked analysis output to analysis/ for future runs",
+    )
+    sub.add_parser(
+        "inspect",
+        help="summarise what is currently stored and how fresh it is",
+    )
     sync_p = sub.add_parser("sync", help="fetch stale prices, fundamentals and profile data")
     sync_p.add_argument("--full", action="store_true", help="ignore staleness and refetch everything")
 

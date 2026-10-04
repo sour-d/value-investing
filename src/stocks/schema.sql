@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS symbol_issue (
 
 CREATE INDEX IF NOT EXISTS idx_issue_open ON symbol_issue(symbol, resolved_at);
 
+
 -- ───────────────────────────────────────────────────────── derived ────
 
 -- Disposable cache. Source of truth is raw fundamentals + screen.toml.

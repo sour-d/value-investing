@@ -1,91 +1,111 @@
 ---
 name: stocks-repo
-description: Use when working in /home/sourav/Projects/stocks, the local NIFTY SMALLCAP 250 screening and journal tracker — running `stocks` commands, editing its gates, metrics, schema, portfolio ledger or daily report, or answering questions about stored stock data. Covers the read-before-refetch rule, the append-only ledger invariants, and which test to run.
+description: Use in ANY session that touches this repo — it is an AI-driven stock analysis toolkit, not a human CLI. Covers the agent loop (MCP fetch → stocks ingest → stocks screen → stocks export), what lives in data/ versus analysis/, the read-before-refetch rule, which file to open for which job, and the hard invariants that must not be broken.
 ---
 
 # The stocks repo
 
-A local, offline tracker for NIFTY SMALLCAP 250 equities: screen, journal, and
-keep a position ledger. Everything is derived from `data/stocks.db`, which is
-gitignored and can be rebuilt. Nothing here talks to a broker.
+An analysis toolkit for NIFTY SMALLCAP 250 equities, driven by you — not a CLI
+for a human at a terminal. You already have the data tools (`india-stock`,
+`yfinance`, `websearch` MCP servers); this repo supplies the deterministic part:
+gates, metrics, a portfolio ledger, and a durable record of what each run
+concluded.
 
-Run everything with `uv run` from the repo root. Every command takes `--json`,
-so prefer it when you need to read values rather than show them.
+## The loop
 
-## Read before you refetch
-
-A full 251-symbol fundamentals fetch takes minutes. Most questions are answered
-from stored data in milliseconds:
-
-```bash
-uv run stocks screen --explain SYMBOL   # every gate, metric and threshold
-uv run stocks why SYMBOL                # thesis, integrity, trades, what is unassessed
-uv run stocks health                    # staleness and data-quality flags
-uv run stocks health --explain CODE     # which symbols carry one issue
+```
+MCP fetch  →  data/inbox/*.json  →  stocks ingest  →  SQLite  →  stocks screen  →  stocks export  →  analysis/*.md
 ```
 
-Only fetch what is genuinely missing. `uv run stocks sync` fetches stale data
-only; `--full` ignores the staleness budgets and is rarely what you want.
+1. **Check what you already have** — `stocks inspect`. Never refetch blindly.
+2. **Fetch only what is missing** via MCP, write the payloads to `data/inbox/`.
+3. **`uv run stocks ingest`** — turns inbox JSON into normalised rows.
+4. **`uv run stocks screen`** — evaluates every gate, persists the run.
+5. **`uv run stocks export`** — writes the git-tracked record.
+6. **Reason about the result, then record the judgement** (see `stock-thesis`).
 
-## The commands
+Each command takes `--json` for unambiguous consumption. Use it whenever you
+intend to parse the output rather than read it.
 
-| Command | What it does |
-| --- | --- |
-| `stocks` (no args) | the daily loop: sync, screen, print a delta report, write the journal |
-| `stocks journal` | write `journal/YYYY-MM-DD.md`; `--print` shows it without writing, `--no-sync` skips the fetch |
-| `stocks health` | three-valued `ok`/`warn`/`bad` data report; nonzero exit only on `bad` |
-| `stocks screen` | run the gates; `--explain SYMBOL`, `--full`, `--roic`/`--no-roic` |
-| `stocks watch` | `list`/`add`/`rm`/`status`, with `--buy-line`, `--fv-low`, `--fv-high`, `--reason` |
-| `stocks integrity` | attest Gate 5 checks by hand: `--set`, `--status`, `--evidence`, plus `--verdict` and `--dimension` |
-| `stocks why SYMBOL` | measured facts, human claims, unassessed inputs, integrity, trades |
-| `stocks buy` / `stocks sell` | append to the ledger; `--reason` is required |
-| `stocks pnl` | realised and unrealised P&L, XIRR; `--benchmark` refuses without a confirmed index wire |
+## What goes where
 
-## Invariants that are load-bearing
+| Path | Tracked? | Contents |
+|---|---|---|
+| `data/inbox/` | no | Raw MCP payloads, verbatim. Re-fetchable. |
+| `data/stocks.db` | no | Working cache. Binary, gitignored. |
+| `analysis/` | **yes** | The durable record: passers, runs, watchlist, qualitative, integrity. |
+| `journal/` | **yes** | Dated narrative of what happened and why. |
+| `thesis/` | **yes** | Per-symbol investment thesis. |
+| `screen.toml` | **yes** | Gate thresholds. Read the `# WHY` before changing one. |
+| `AGENTS.md` | **yes** | Hard invariants. Read it before writing code. |
 
-Breaking any of these breaks the thing the repo exists to do, so read the
-reason before changing the code.
+A run is only useful if the next one can remember it. That is why `analysis/` is
+committed and `data/` is not: the binary cache is disposable, the conclusions are
+not.
 
-- **Never write to `data/stocks.db` directly.** Go through the CLI.
-- **`transactions` is append-only**, enforced by trigger. To correct a mistake,
-  append a reversing entry. Never `UPDATE` or `DELETE`, and never disable the
-  trigger.
-- **`positions`, `cost_basis`, `realised_pnl`, `cashflows`, `v_*` are views.**
-  They are recomputed from the ledger on every read. Creating a table that
-  duplicates one is the exact drift they exist to prevent.
-- **Store raw, derive on read.** `fundamentals_annual` holds vendor values keyed
-  by `fy_end`; metrics are computed at query time. Never persist a derived
-  metric as though it were an input.
-- **A vendor ratio is a claim.** `profile_snapshot` rows carry `trusted = 0`
-  until a filings cross-check sets it. Do not mark a vendor number verified
-  because it looks reasonable.
-- **`gate_result.blocking` distinguishes a failed check from a failed blocking
-  check.** ROE is non-blocking. Any new query over `gate_result` must filter on
-  `blocking = 1`, or soft-ROE names become permanent "entrants" in every delta.
-- **A passer is a research queue entry, never a buy.** Gates are necessary, not
-  sufficient.
+## Which skill for which job
 
-## Where things live
+| Task | Skill |
+|---|---|
+| Getting data in, filling coverage gaps | `data-acquisition` |
+| Understanding why a stock passed or failed | `stock-screen-method` |
+| Judging business quality, moat, management, price | `buffett-analysis` |
+| Writing down a decision | `stock-thesis` |
+| Recording fills, correcting a mistake, P&L | `stocks-repo` (ledger section below) |
+| Attesting data integrity, Gate 5 | `stock-data-integrity` |
 
-| Path | Role |
-| --- | --- |
-| `src/stocks/screen.toml` | every threshold, each with a `# WHY` comment |
-| `src/stocks/screen.py` | gate evaluation, blocking vs non-blocking checks |
-| `src/stocks/metrics.py` | metrics derived from raw fundamentals — change with care |
-| `src/stocks/sync.py`, `providers/` | staleness budgets and vendor adapters |
-| `src/stocks/portfolio.py` | cost basis, P&L, XIRR, Gate 5 enforcement |
-| `src/stocks/judgment.py` | watchlist, integrity attestations, verdicts, `why` |
-| `src/stocks/daily.py` | the daily report, its line budget and the journal |
-| `src/stocks/schema.sql`, `db.py` | schema; additive columns go in `_ADDITIVE_COLUMNS` |
-| `journal/*.md` | tracked, because the reasoning is the irreplaceable part |
+## Hard invariants
+
+Read `AGENTS.md` in full before changing code. The short version:
+
+- **Never write to `data/stocks.db` directly.** Go through the CLI or `stocks.ingest`.
+- **`transactions` is append-only.** Correct a mistake by appending a reversing
+  entry, never by deleting one.
+- **`positions`, `cost_basis`, `realised_pnl` are SQL views.** Never create a
+  table that duplicates them; that drift is exactly what they prevent.
+- **Store raw, derive on read.** `fundamentals_annual` holds vendor values;
+  metrics are computed at query time. Never persist a derived metric as an input.
+- **A vendor ratio is a claim.** `profile_snapshot.trusted` defaults to `0`.
+- **A passer is a research candidate, never a buy.** Gates are necessary, not
+  sufficient — the pilot run produced three names that cleared every gate and
+  were still bad buys.
+
+## Any query over `gate_result` must filter `blocking = 1`
+
+A check can fail *without* rejecting the symbol. `passed = 0` alone does not mean
+rejected; ROE was demoted to a non-blocking check, and reading it as a rejection
+made every soft-ROE name an entrant on every run.
+
+A symbol is **clean** when it has gate rows and no row where
+`passed = 0 AND blocking = 1`. Use the existing helper rather than re-deriving it:
+
+```python
+from stocks import screencmd
+clean = screencmd.clean_symbols(conn, run_id)
+```
+
+## The ledger
+
+```bash
+uv run stocks buy  SYMBOL --qty N --price P   # append a fill
+uv run stocks sell SYMBOL --qty N --price P   # append a disposal
+uv run stocks pnl                             # realised + unrealised
+```
+
+A wrong entry is fixed by appending its inverse, not by editing or deleting:
+
+```bash
+uv run stocks sell SYMBOL --qty N --price P --reason "reversal of mistaken buy"
+```
+
+`stocks buy` refuses while any `integrity_check` is not `verified`.
+`--override-integrity "reason"` is allowed and the reason is stored on the
+transaction, so every override stays auditable.
 
 ## Before you commit
 
 ```bash
-uv run pytest        # 162 tests
+uv run pytest -q
+uv run ruff check src scripts tests
+uv run mypy src/stocks
 ```
-
-`metrics.py`, `screen.py` and `portfolio.py` changes always need the full run.
-Changing a threshold means editing `screen.toml` and committing a message that
-states why — never special-casing a symbol in code. Compare `config_hash`
-between runs before reading anything into an entrant or exit.

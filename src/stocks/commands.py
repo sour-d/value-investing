@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 
@@ -54,21 +55,24 @@ def cmd_init(args: Any) -> int:
 
 
 def cmd_bootstrap(args: Any) -> int:
-    """Import the baseline NIFTY SMALLCAP 250 universe, profiles and fundamentals.
+    """Legacy offline import from a directory of vendor artefacts.
 
-    The artefacts must exist in /tmp/opencode:
-      smcap250.csv  -- symbols and sectors
-      info.json     -- vendor profile snapshots
-      fin.pkl       -- annual statements {fy_end: {item: value}}
+    Kept because the pilot contract in ``tests/test_pilot_reproduction.py``
+    pins a specific historical result, and reproducing it needs the original
+    pickles. New data should arrive via MCP instead: ``stocks ingest``.
+
+    Requires ``smcap250.csv``, ``info.json`` and ``fin.pkl`` in ``source``.
     """
     import subprocess
     import sys
     from pathlib import Path
 
-    src = Path("/tmp/opencode")
+    source = getattr(args, "source", None)
+    src = Path(source) if source else Path("/tmp/opencode")
     if not (src / "smcap250.csv").exists():
-        print("ERROR: /tmp/opencode/smcap250.csv not found", file=sys.stderr)
-        print("Download the NIFTY SMALLCAP 250 CSV from NSE and place it there.", file=sys.stderr)
+        print(f"ERROR: {src / 'smcap250.csv'} not found", file=sys.stderr)
+        print("This offline path needs smcap250.csv, info.json and fin.pkl.", file=sys.stderr)
+        print("For normal use, fetch via MCP and run `stocks ingest`.", file=sys.stderr)
         return 1
 
     db_path = getattr(args, "db", None)
@@ -84,6 +88,96 @@ def cmd_bootstrap(args: Any) -> int:
     except subprocess.CalledProcessError as e:
         print(f"import failed: {e}", file=sys.stderr)
         return e.returncode
+
+
+@_impl("ingest")
+def cmd_ingest(args: Any) -> int:
+    """Load ``data/inbox/*.json`` — whatever an MCP fetch wrote — into the DB."""
+    from . import ingest
+    from .cli import _emit
+    from .paths import inbox_dir
+
+    inbox = getattr(args, "inbox", None)
+    directory = inbox or inbox_dir()
+    if not directory.is_dir() or not any(directory.glob("*.json")):
+        print(f"no inbox JSON in {directory}", file=sys.stderr)
+        print("Fetch data with the india-stock / yfinance MCP servers, write it to",
+              file=sys.stderr)
+        print(f"{directory}/ as JSON, then re-run `stocks ingest`.", file=sys.stderr)
+        return 1
+
+    counts = ingest.ingest_all(args.db, directory)
+
+    def human(_: dict) -> str:
+        return "\n".join(f"{name:12} {count:>9,}" for name, count in counts.items())
+
+    _emit(counts, getattr(args, "json", False), human=human)
+    return 0
+
+
+@_impl("export")
+def cmd_export(args: Any) -> int:
+    """Write the durable, git-trackable record of what the analysis concluded."""
+    from . import export
+    from .cli import _emit
+
+    written = export.export_all(args.db)
+    payload = {"written": [str(path) for path in written]}
+    _emit(payload, getattr(args, "json", False),
+          human=lambda p: "\n".join(p["written"]))
+    return 0
+
+
+@_impl("inspect")
+def cmd_inspect(args: Any) -> int:
+    """What is stored, and how fresh. First call in any session."""
+    from . import db, paths
+    from .cli import _emit
+
+    paths.ensure_dirs()
+    conn = db.connect(args.db)
+    try:
+        db.apply_schema(conn)
+        tables = ("universe", "profile_snapshot", "fundamentals_annual",
+                  "price_daily", "screen_run", "gate_result", "transactions",
+                  "watchlist", "qualitative_assessment", "valuation_assumption",
+                  "research_verdict", "symbol_issue")
+        counts = {name: db.count(conn, name) for name in tables}
+        last_price = conn.execute(
+            "SELECT MAX(date) FROM price_daily"
+        ).fetchone()[0]
+        last_run = conn.execute(
+            "SELECT run_id, started_at, n_clean, universe_size FROM screen_run "
+            "ORDER BY run_id DESC LIMIT 1"
+        ).fetchone()
+        payload: dict = {
+            "database": str(Path(conn.execute(
+                "PRAGMA database_list").fetchone()[2]).name),
+            "counts": counts,
+            "latest_price_date": last_price,
+            "latest_run": dict(last_run) if last_run else None,
+            "inbox_files": sorted(p.name for p in paths.inbox_dir().glob("*.json")),
+            "analysis_dir": str(paths.analysis_dir()),
+        }
+    finally:
+        conn.close()
+
+    def human(p: dict) -> str:
+        lines = [f"database: {p['database']}",
+                 f"latest price date: {p['latest_price_date'] or 'never'}"]
+        run = p["latest_run"]
+        lines.append(
+            f"latest run: #{run['run_id']} {run['started_at'][:10]} "
+            f"{run['n_clean']}/{run['universe_size']} clean" if run
+            else "latest run: none")
+        lines.append("")
+        lines.extend(f"{name:24} {count:>9,}" for name, count in p["counts"].items())
+        lines.append("")
+        lines.append(f"inbox: {', '.join(p['inbox_files']) or 'empty'}")
+        return "\n".join(lines)
+
+    _emit(payload, getattr(args, "json", False), human=human)
+    return 0
 
 
 @_impl("sync")

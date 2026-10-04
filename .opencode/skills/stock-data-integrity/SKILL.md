@@ -88,3 +88,19 @@ rm data/stocks.db && uv run stocks init && uv run python scripts/import_baseline
 
 The one exception to "derived": `transactions` is the input. It is append-only
 by trigger, and correcting it means appending a reversing entry.
+
+## Where this sits in the loop
+
+Integrity is not a final step; it is what makes the rest trustworthy.
+
+- Every ingested `profile_snapshot` row lands with **`trusted = 0`** and
+  `source = 'mcp'`. Vendor ratios are claims until a filing confirms them.
+- `symbol_issue` is **recomputed on every ingest**, so a fixed symbol loses its
+  flag rather than carrying it forever.
+- `stocks ingest` reports per-file counts. A count of **0** where you expected
+  data means the payload shape was wrong, not that the vendor returned nothing.
+- `stocks export` writes `analysis/integrity.md`: outstanding issues, failed
+  fetches, and the standing warning that nothing has been filing-verified.
+
+Two vendors disagree on the same figure more often than you would expect — check
+`india-stock` against `yfinance` before trusting a ratio that drives a gate.

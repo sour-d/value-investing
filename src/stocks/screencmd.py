@@ -95,6 +95,32 @@ class ScreenResult:
         return "\n".join(lines)
 
 
+def clean_symbols(conn: sqlite3.Connection, run_id: int) -> set[str]:
+    """Symbols that cleared every blocking check in ``run_id``.
+
+    Clean means *no* ``passed = 0 AND blocking = 1`` row exists, not
+    ``blocking = 1``: a blocking row also describes every check that passed, so
+    selecting on it returns almost the whole universe. Non-blocking failures are
+    recorded context rather than rejections and must not disqualify a name.
+
+    A symbol with no gate rows at all was never evaluated — data was missing —
+    so it is excluded rather than treated as a pass.
+    """
+    failed = {
+        row["symbol"] for row in conn.execute(
+            "SELECT DISTINCT symbol FROM gate_result "
+            "WHERE run_id = ? AND passed = 0 AND blocking = 1",
+            (run_id,),
+        )
+    }
+    seen = {
+        row["symbol"] for row in conn.execute(
+            "SELECT DISTINCT symbol FROM gate_result WHERE run_id = ?", (run_id,)
+        )
+    }
+    return seen - failed
+
+
 def run(
     full: bool = False,
     db_path: str | None = None,
@@ -110,7 +136,7 @@ def run(
         conn.close()
 
 
-def _previous_run(
+def previous_run(
     conn: sqlite3.Connection, before_run: int
 ) -> tuple[set[str], str | None, str | None, bool]:
     """The most recent earlier run.
@@ -127,24 +153,7 @@ def _previous_run(
     ).fetchone()
     if row is None:
         return set(), None, None, False
-
-    # A symbol is clean when no BLOCKING check failed. Non-blocking failures are
-    # recorded context, not rejections, so they must not be read as one.
-    failed = {
-        r["symbol"] for r in conn.execute(
-            "SELECT DISTINCT symbol FROM gate_result "
-            "WHERE run_id = ? AND passed = 0 AND blocking = 1",
-            (row["run_id"],),
-        )
-    }
-    seen = {
-        r["symbol"] for r in conn.execute(
-            "SELECT DISTINCT symbol FROM gate_result WHERE run_id = ?",
-            (row["run_id"],),
-        )
-    }
-    # A blocked symbol (no gate rows at all) is not clean either.
-    return seen - failed, row["config_hash"], row["notes"], True
+    return clean_symbols(conn, row["run_id"]), row["config_hash"], row["notes"], True
 
 
 def variant_of(cfg: config_mod.Config, use_roic: bool | None = None) -> str:
@@ -189,7 +198,7 @@ def _run_locked(
     conn.execute("UPDATE screen_run SET finished_at = ? WHERE run_id = ?", (_now(), run_id))
     conn.commit()
 
-    prev_pasers, prev_hash, prev_variant, has_previous = _previous_run(conn, run_id)
+    prev_pasers, prev_hash, prev_variant, has_previous = previous_run(conn, run_id)
     result = ScreenResult(
         run_id=run_id,
         config_hash=cfg.config_hash,

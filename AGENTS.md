@@ -1,25 +1,48 @@
 # AGENTS.md
 
-Local stock screening, journal and portfolio tracker for NIFTY SMALLCAP 250 equities.
+NIFTY SMALLCAP 250 screening, journal and portfolio tracker, driven by an AI agent.
+
+## You are the caller, not the user
+
+This repo has no CLI audience. It is invoked by an agent that already has the
+`india-stock`, `yfinance` and `websearch` MCP servers. Python here supplies the
+deterministic half — gates, metrics, ledger, durable record — and never fetches
+on the ingest path. Ingestion is a pure function of `data/inbox/`.
+
+Read `.opencode/skills/stocks-repo/SKILL.md` first, then the skill for the job.
+
+## The loop
+
+```bash
+uv run stocks inspect    # read before refetching
+# ... fetch via MCP, write payloads to data/inbox/*.json ...
+uv run stocks ingest     # inbox JSON -> normalised rows
+uv run stocks screen     # evaluate gates, persist the run
+uv run stocks export     # write the committed record to analysis/
+```
+
+`analysis/` is committed and holds the memory of every run; `data/` is ignored
+and disposable. A run nobody can recall is not worth doing.
 
 ## Read the database before you refetch
 
 Before fetching anything, check whether the answer is already stored:
 
 ```bash
-stocks screen --explain SYMBOL      # gates, metrics, threshold that failed
-stocks why SYMBOL                   # thesis, trade reasons, monitoring triggers
-stocks health                      # staleness + data-quality flags
-sqlite3 data/stocks.db "SELECT * FROM price_daily WHERE symbol='ACC' ORDER BY date DESC LIMIT 5"
+uv run stocks inspect                 # counts, latest price date, latest run
+uv run stocks screen --explain SYMBOL # gates, metrics, threshold that failed
+uv run stocks why SYMBOL              # thesis, trade reasons, monitoring triggers
+uv run stocks health                  # staleness + data-quality flags
 ```
 
-A full 251-symbol fundamentals fetch takes minutes. `screen_daily` answers most
-questions in milliseconds. Read first, fetch only what is genuinely missing.
+A full 251-symbol fundamentals fetch takes minutes. `screen --explain` answers
+most questions in milliseconds. Read first, fetch only what is genuinely missing.
 
 ## Hard invariants — do not break these
 
-- **Never write to `data/stocks.db` directly.** Go through the CLI. The database
-  rejects `UPDATE`/`DELETE` on `transactions` via trigger; do not work around it.
+- **Never write to `data/stocks.db` directly.** Go through `stocks.ingest` or the
+  CLI. The database rejects `UPDATE`/`DELETE` on `transactions` via trigger; do
+  not work around it.
 - **`transactions` is append-only.** To correct a mistake, append a reversing entry.
 - **`positions`, `cost_basis`, `realised_pnl`, `cashflows` are SQL views.** They are
   derived from the ledger on every read. Never create a table that duplicates them —
@@ -29,6 +52,11 @@ questions in milliseconds. Read first, fetch only what is genuinely missing.
   metric as if it were an input.
 - **A vendor ratio is a claim, not a fact.** `profile_snapshot` rows carry
   `trusted = 0` by default. Anything load-bearing needs a filings cross-check.
+- **Never store sell-side targets.** `targetMeanPrice` and `recommendationKey`
+  would anchor the valuation judgement this repo exists to make independently.
+  Enforced by `tests/test_sync.py::test_analyst_targets_are_not_stored`.
+- **`NaN` means absent, not zero.** The vendor emits literal `NaN`; it becomes
+  `NULL`. Storing 0 would drag every downstream average toward zero.
 
 ## Gating philosophy
 
@@ -62,21 +90,34 @@ honest answer; a false `verified` is not.
 
 ## The daily loop
 
-`stocks` with no subcommand is the whole daily habit: sync stale data, screen,
+`uv run stocks` with no subcommand is the whole habit: sync stale data, screen,
 print a delta-first report, write `journal/YYYY-MM-DD.md`. The report is capped
 at `daily.MAX_LINES` and trims from the least decision-relevant line up, always
 listing what it dropped — a silently shortened list reads as a complete one.
 
 `gate_result.blocking` distinguishes a failed check from a failed *blocking*
 check. Phase 5 demoted ROE to non-blocking, so `passed = 0` alone no longer
-means "rejected". Reconstructing the clean set without this made every soft-ROE
-name an entrant on every run. Any new query over `gate_result` must filter on
-`blocking = 1`.
+means "rejected". A symbol is clean when it has gate rows and **no** row where
+`passed = 0 AND blocking = 1`. Selecting on `blocking = 1` alone returns almost
+the whole universe, because it describes every check that passed. Use the
+helper rather than re-deriving it:
+
+```python
+from stocks import screencmd
+clean = screencmd.clean_symbols(conn, run_id)
+```
+
+Export (`analysis/passers.md`) and delta both depend on this being right.
 
 ## Conventions
 
 - Python >= 3.13, managed with `uv`. `uv run stocks ...`
-- Every CLI command supports `--json` so an agent can consume it unambiguously.
-- Tests: `uv run pytest`. Run them before committing a change to `metrics.py`,
-  `screen.py` or `portfolio.py`.
+- Every command supports `--json` so an agent can consume it unambiguously.
+- Percentages are **already multiplied by 100** by `metrics.compute`, and
+  `judgment._mos` stores 0-100. Formatting must not scale a second time — that
+  produced a passers table claiming 1943% ROE.
+- Inbox payloads mirror MCP responses verbatim. Normalise at the ingest boundary,
+  never by asking the agent to transform numbers.
+- Tests: `uv run pytest -q`, plus `ruff` and `mypy`. Run them before committing a
+  change to `metrics.py`, `screen.py` or `portfolio.py`.
 - No new runtime dependencies without a reason worth the import cost.
