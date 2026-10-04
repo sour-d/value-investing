@@ -48,7 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
 
     sub.add_parser("init", help="create the database and apply the schema")
-    sub.add_parser("sync", help="fetch stale prices, fundamentals and profile data")
+    sync_p = sub.add_parser("sync", help="fetch stale prices, fundamentals and profile data")
+    sync_p.add_argument("--full", action="store_true", help="ignore staleness and refetch everything")
     sub.add_parser("health", help="staleness and data-quality report")
     sub.add_parser("journal", help="write and commit today's journal entry")
 

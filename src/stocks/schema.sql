@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS fetch_log (
     fetch_id        INTEGER PRIMARY KEY AUTOINCREMENT,
     ts              TEXT NOT NULL,
     source          TEXT NOT NULL,
-    kind            TEXT NOT NULL,               -- 'universe'|'profile'|'financials'|'prices'
+    kind            TEXT NOT NULL,               -- 'universe'|'profile'|'financials'|'prices'|'benchmark'
     symbol          TEXT,
     ok              INTEGER NOT NULL,
     n_items         INTEGER,

@@ -15,6 +15,13 @@
 index = "NIFTY SMALLCAP 250"
 csv = "https://www.niftyindices.com/IndexConstituent/ind_niftysmallcap250list.csv"
 benchmark = "NIFTY_SMALLCAP250"
+# WHY: the logical benchmark name is stored in the database; this is the vendor
+# code used to fetch it. Left empty on purpose — see providers/yahoo.py: the
+# feed returns no bars for ^NIFTY_SMALLCAP250 and the codes that do return bars
+# report names inconsistent with their own price levels. `stocks health` reports
+# this as unverified, and relative performance refuses to compute without it.
+# Fill this in once a code is confirmed against the official index factsheet.
+benchmark_wire = ""
 
 # ── Gate 0 · data sufficiency ────────────────────────────────────────────────
 # Runs before any judgement. A gate evaluated over too little history is

@@ -50,9 +50,11 @@ def cmd_init(args: Any) -> int:
 @_impl("sync")
 def cmd_sync(args: Any) -> int:
     from . import sync
+    from .cli import _emit
 
-    print(sync.run(db_path=args.db).summary())
-    return 0
+    result = sync.run(db_path=args.db, full=getattr(args, "full", False))
+    _emit(result.payload(), getattr(args, "json", False), human=lambda _: result.summary())
+    return 1 if result.errors else 0
 
 
 @_impl("health")
