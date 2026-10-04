@@ -106,10 +106,22 @@ def _validate(data: dict[str, Any]) -> tuple[str, ...]:
     for path in ("gate1.earnings_quality.min_ocf_to_ni",
                  "gate2.balance_sheet.max_net_debt_to_equity",
                  "gate3.profitability.min_roe",
-                 "gate3.profitability.min_ebitda_margin",
-                 "gate3.profitability.min_roic"):
+                 "gate3.profitability.min_ebitda_margin"):
         if get(path) is None:
             warnings.append(f"{path} is unset")
+
+    # The ROIC thresholds are required in whichever variant is active: they are
+    # the primary gate's floor, and a gate that silently defaults is a gate
+    # nobody chose.
+    primary = str(get("gate3.profitability.primary") or "roic").lower()
+    if primary not in ("roic", "roe"):
+        warnings.append(
+            f"gate3.profitability.primary={primary!r} is not 'roic' or 'roe'; "
+            "ROIC will be used")
+    for path in ("gate3.profitability.min_roic",
+                 "gate3.profitability.min_roic_wacc_spread"):
+        if get(path) is None:
+            warnings.append(f"{path} is unset but primary='roic'")
 
     # Gate 5 must block. An empty required_checks list would let a buy through
     # with nothing verified, which is the exact failure the gate exists to stop.

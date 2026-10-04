@@ -102,7 +102,7 @@ def cmd_screen(args: Any) -> int:
         return 0
 
     result = screencmd.run(full=args.full, db_path=args.db,
-                           use_roic=getattr(args, "roic", False))
+                           use_roic=getattr(args, "roic", None))
     _emit(result.payload(), getattr(args, "json", False), human=lambda _: result.render())
     return 0
 

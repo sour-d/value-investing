@@ -64,8 +64,20 @@ max_debt_to_equity = 1.8
 # Pilot pipeline used ROE. Phase 5 switches the primary gate to ROIC.
 
 [gate3.profitability]
-min_roe = 13.0
-min_ebitda_margin = 9.0
+# WHY: primary = "roic" as of Phase 5. ROE measures return on *equity*, so it
+# improves when a company adds debt even if the business earns nothing extra.
+# Gate 2 already constrains leverage; letting ROE also grade profitability would
+# let the capital structure flatter the operating result. ROIC vs WACC asks the
+# harder question — does the business out-earn the capital committed to it?
+primary = "roic"
+
+min_roic           = 15.0   # absolute floor: beating a low WACC is not enough
+min_roic_wacc_spread = 5.0  # and it must beat WACC with a real margin, not a rounding error
+
+# Retained as a recorded, NON-blocking check. Worth seeing, but it can no longer
+# reject a company whose returns genuinely clear its cost of capital.
+min_roe            = 13.0
+min_ebitda_margin  = 9.0
 
 # ── Gate 4 · value ───────────────────────────────────────────────────────────
 # WHY: any ONE of these being cheap earns a research slot. This is an OR, and

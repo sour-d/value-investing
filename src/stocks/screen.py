@@ -36,6 +36,7 @@ class GateResult:
     reason: str | None = None
     note: str | None = None
     op: str = ""          # ">=", "<=" or "" when the check has no single direction
+    blocking: bool = True  # False for a recorded secondary check that cannot fail the symbol
 
     def as_row(self) -> tuple[str, str, int, str | None, float | None, float | None, str | None, str | None]:
         """Column values for ``gate_result`` (run_id and symbol are added by the caller)."""
@@ -59,7 +60,9 @@ class SymbolVerdict:
 
     @property
     def failures(self) -> list[GateResult]:
-        return [g for g in self.gates if not g.passed]
+        """Only blocking failures count. A recorded secondary check that did
+        not pass is information, not a rejection."""
+        return [g for g in self.gates if not g.passed and g.blocking]
 
 
 def _skip(metric: str, threshold: float, gate: str, name: str, op: str) -> GateResult:
@@ -188,26 +191,67 @@ def gate2(m: M.Metrics, cfg: Config) -> list[GateResult]:
     ]
 
 
-def gate3(m: M.Metrics, cfg: Config, use_roic: bool = False) -> list[GateResult]:
-    c = cfg.get("gate3.profitability", {}) or {}
+def gate3(m: M.Metrics, cfg: Config, use_roic: bool | None = None) -> list[GateResult]:
+    """Profitability floor.
 
-    # ROIC is the primary profitability gate from Phase 5: it removes
-    # capital-structure distortion. ROE stays as a secondary check.
+    ROIC-over-WACC is the primary gate. ROE measures return on *equity*, so it
+    rises when a company adds debt even if the business earns nothing extra —
+    which is exactly the leverage-driven ROE that the balance sheet in Gate 2
+    is meant to be constraining. Judging profitability on ROE therefore lets
+    the capital structure flatter the operating result, and a screen whose whole
+    job is to resist flattering numbers should not do that. ROIC against WACC
+    asks the harder question: does the business earn more on the capital
+    committed than that capital costs?
+
+    ROE is still recorded, as a non-blocking check. It is worth seeing that a
+    business converts its returns well, but it must not be able to reject a
+    company whose returns genuinely clear its cost of capital.
+    """
+    c = cfg.get("gate3.profitability", {}) or {}
+    if use_roic is None:
+        use_roic = str(c.get("primary", "roic")).lower() == "roic"
+
     out: list[GateResult] = []
     if use_roic:
+        # ROIC must clear both an absolute floor and its cost of capital. The
+        # absolute floor guards against a business that beats a very low WACC
+        # while still being a poor business.
         out.append(_required_higher("roic", m.roic, float(c.get("min_roic", 15.0)),
                                     "G3", "roic"))
         spread_min = float(c.get("min_roic_wacc_spread", 5.0))
-        spread_ok = m.roic_spread is not None and m.roic_spread >= spread_min
-        out.append(GateResult(
-            "G3", "roic_wacc_spread", spread_ok, "roic_spread", m.roic_spread, spread_min,
-            None if spread_ok else "ROIC does not clear WACC by the required margin",
-            op=">=",
-        ))
+        if m.roic is None or m.wacc is None:
+            out.append(GateResult(
+                "G3", "roic_wacc_spread", False, "roic_spread", None, spread_min,
+                "ROIC or WACC unavailable; cannot test returns against cost of "
+                "capital. Set valuation.inputs.risk_free_rate if WACC is missing",
+                op=">="))
+        else:
+            spread_ok = m.roic_spread >= spread_min
+            out.append(GateResult(
+                "G3", "roic_wacc_spread", spread_ok, "roic_spread", m.roic_spread,
+                spread_min,
+                None if spread_ok else
+                f"ROIC {m.roic:.2f} exceeds WACC {m.wacc:.2f} by only "
+                f"{m.roic_spread:.2f} < {spread_min:g}",
+                op=">=",
+            ))
+    else:
+        out.append(_required_higher("roe", m.roe, float(c.get("min_roe", 13.0)),
+                                    "G3", "roe"))
 
     out.append(_required_higher("ebitda_margin", m.ebitda_margin,
                                 float(c.get("min_ebitda_margin", 9.0)), "G3", "ebitda_margin"))
-    out.append(_required_higher("roe", m.roe, float(c.get("min_roe", 13.0)), "G3", "roe"))
+
+    # Recorded either way, but it can no longer reject on its own.
+    out.append(GateResult(
+        "G3", "roe_secondary", m.roe is not None and m.roe >= float(c.get("min_roe", 13.0)),
+        "roe", m.roe, float(c.get("min_roe", 13.0)),
+        None if (m.roe is not None and m.roe >= float(c.get("min_roe", 13.0)))
+        else f"ROE {m.roe:.2f} below {float(c.get('min_roe', 13.0)):g}"
+             if m.roe is not None else "ROE unavailable",
+        note="secondary: ROIC is the gate, ROE is context only",
+        op=">=", blocking=False,
+    ))
     return out
 
 
@@ -326,7 +370,7 @@ def evaluate_symbol(
     cfg: Config,
     risk_free: float | None = None,
     erp: float | None = None,
-    use_roic: bool = False,
+    use_roic: bool | None = None,
 ) -> SymbolVerdict:
     m = M.compute(conn, symbol, risk_free_rate=risk_free, equity_risk_premium=erp)
     v = SymbolVerdict(symbol=symbol, name=m.name or symbol)
@@ -343,14 +387,15 @@ def evaluate_symbol(
 
     v.gates = (gate0(m, cfg) + gate1(m, cfg) + gate2(m, cfg)
                + gate3(m, cfg, use_roic=use_roic) + gate4(m, cfg))
-    v.n_failed = sum(1 for g in v.gates if not g.passed)
+    # Only blocking checks count toward rejection and tiering.
+    v.n_failed = sum(1 for g in v.gates if not g.passed and g.blocking)
     v.quality_score = quality_score(m, cfg)
     v.tier = classify_tier(v.n_failed, v.quality_score, cfg)
     return v
 
 
 def evaluate_universe(
-    conn: sqlite3.Connection, cfg: Config, use_roic: bool = False
+    conn: sqlite3.Connection, cfg: Config, use_roic: bool | None = None
 ) -> list[SymbolVerdict]:
     symbols = [r["symbol"] for r in conn.execute(
         "SELECT symbol FROM universe WHERE in_index = 1 ORDER BY symbol"

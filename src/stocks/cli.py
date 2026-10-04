@@ -60,8 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
     screen.add_argument("--full", action="store_true", help="force a full re-run")
     screen.add_argument(
         "--roic",
-        action="store_true",
-        help="use the ROIC/WACC profitability gate (Phase 5) instead of ROE",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="force the ROIC/WACC profitability gate on or off "
+             "(default: follow gate3.profitability.primary in screen.toml)",
     )
 
     pnl = sub.add_parser("pnl", help="realised and unrealised profit and loss")

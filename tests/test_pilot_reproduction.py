@@ -4,8 +4,11 @@ This file is the contract for Phase 2: the same raw vendor values under the same
 thresholds must yield the same nine passers as the pilot pipeline. If a metric
 formula drifts, this fails loudly instead of the screen quietly changing meaning.
 
-``min_roic`` is intentionally absent from ``screen.toml`` right now, so the
-config validator emits a warning for it. That warning is the flag for Phase 5.
+``min_roic`` became the primary profitability gate in Phase 5. The exact nine
+pilot passers below are recorded with the ROE variant, so the two tests that
+assert on them pass ``use_roic=False``: they are a regression contract for the
+metric formulas and Gate 4 semantics, not a claim about which variant is
+currently configured. ``TestRoicPrimary`` covers the active gate.
 """
 
 from __future__ import annotations
@@ -65,10 +68,29 @@ def test_pilot_universe_and_issues(populated):
 
 
 def test_pilot_passers_reproduced(populated, cfg):
-    passers = {v.symbol for v in screen.evaluate_universe(populated, cfg) if v.clean}
+    """The nine pilot passers, under the ROE variant that produced them."""
+    passers = {
+        v.symbol
+        for v in screen.evaluate_universe(populated, cfg, use_roic=False)
+        if v.clean
+    }
     assert passers == PILOT_PASSERS, (
         f"expected {sorted(PILOT_PASSERS)}, got {sorted(passers)}"
     )
+
+
+def test_roic_variant_delta_against_the_pilot(populated, cfg):
+    """The Phase 5 switch, measured rather than assumed.
+
+    Recorded explicitly because the change was small and the reasoning matters
+    more than the count: NAVA enters on returns-versus-cost-of-capital while
+    SUNTV leaves, and neither company's fundamentals moved.
+    """
+    roe = {v.symbol for v in screen.evaluate_universe(populated, cfg, use_roic=False)
+           if v.clean}
+    roic = {v.symbol for v in screen.evaluate_universe(populated, cfg) if v.clean}
+    assert roic - roe == {"NAVA"}
+    assert roe - roic == {"SUNTV"}
 
 
 def test_known_false_positives_still_pass_gates(populated, cfg):
@@ -181,11 +203,121 @@ def test_config_hash_ignores_formatting(tmp_path):
     assert config.load(a).config_hash != config.load(c).config_hash
 
 
-def test_config_flags_missing_roic_threshold(cfg):
-    # Phase 5 has not landed: ROIC is computed but not yet a gate threshold.
-    assert any("min_roic" in w for w in cfg.warnings)
+def test_config_gates_roic(cfg):
+    # Phase 5 landed: ROIC is the gate and its thresholds are required, so a
+    # config that omits them is a warning rather than a silent default.
+    assert cfg.get("gate3.profitability.primary") == "roic"
+    assert cfg.get("gate3.profitability.min_roic") is not None
+    assert cfg.get("gate3.profitability.min_roic_wacc_spread") is not None
+    assert not any("min_roic" in w for w in cfg.warnings)
     # Integrity must be configured, or Gate 5 would not block.
     assert not any("required_checks" in w for w in cfg.warnings)
+
+
+class TestRoicPrimary:
+    """Phase 5: ROIC-over-WACC grades profitability; ROE is context only.
+
+    The motivation is that ROE measures return on *equity*, so it improves when
+    a company adds debt even if the business earns nothing extra. Gate 2 already
+    constrains leverage, so grading profitability on ROE too would let the
+    capital structure flatter the operating result.
+    """
+
+    @staticmethod
+    def _metrics(**kw):
+        """A Metrics instance with only the profitability fields overridden.
+
+        Attributes are assigned after construction, so this works because the
+        dataclass is not frozen. Anything left unset stays as computed (None),
+        which is the honest value for an absent metric.
+        """
+        c = db.connect(":memory:")
+        db.apply_schema(c)
+        c.execute("INSERT INTO universe (symbol,name,in_index,added_on) "
+                  "VALUES ('RC','Roic Co',1,'2026-01-01')")
+        m = M.compute(c, "RC")
+        for key, value in kw.items():
+            assert hasattr(m, key), f"Metrics has no field {key!r}"
+            setattr(m, key, value)
+        return c, m
+
+    def test_roic_is_primary_and_roe_is_not_a_gate(self, cfg):
+        c, m = self._metrics(roic=20.0, wacc=11.0, roic_spread=9.0, roe=14.0)
+        try:
+            names = [g.name for g in screen.gate3(m, cfg)]
+            assert "roic" in names and "roic_wacc_spread" in names
+            assert "roe" not in names
+            assert "roe_secondary" in names
+        finally:
+            c.close()
+
+    def test_high_roe_low_roic_now_fails(self, cfg):
+        """The heart of the switch: leverage-inflated ROE no longer passes."""
+        c, m = self._metrics(roe=30.0, roic=4.0, wacc=12.0, roic_spread=-8.0,
+                             ebitda_margin=20.0)
+        try:
+            gates = screen.gate3(m, cfg)
+            assert any(g.name == "roic" and not g.passed for g in gates)
+            assert next(g for g in gates if g.name == "roe_secondary").passed
+        finally:
+            c.close()
+
+    def test_high_roic_low_roe_no_longer_rejected(self, cfg):
+        c, m = self._metrics(roe=4.0, roic=25.0, wacc=11.0, roic_spread=14.0,
+                             ebitda_margin=20.0)
+        try:
+            gates = screen.gate3(m, cfg)
+            assert [g.name for g in gates if not g.passed and g.blocking] == []
+        finally:
+            c.close()
+
+    def test_low_roe_is_recorded_but_non_blocking(self, cfg):
+        c, m = self._metrics(roe=2.0, roic=25.0, wacc=11.0, roic_spread=14.0,
+                             ebitda_margin=20.0)
+        try:
+            g = next(x for x in screen.gate3(m, cfg) if x.name == "roe_secondary")
+            assert not g.passed and g.blocking is False
+        finally:
+            c.close()
+
+    def test_spread_failure_names_both_sides(self, cfg):
+        """A bare "spread too small" hides which side is responsible."""
+        c, m = self._metrics(roic=14.0, wacc=11.0, roic_spread=3.0, ebitda_margin=20.0)
+        try:
+            g = next(x for x in screen.gate3(m, cfg) if x.name == "roic_wacc_spread")
+            assert not g.passed
+            assert "ROIC 14.00" in (g.reason or "") and "WACC 11.00" in (g.reason or "")
+        finally:
+            c.close()
+
+    def test_missing_risk_free_rate_fails_the_spread_explicitly(self, cfg):
+        """No WACC means the harder question is unanswerable, not passed."""
+        c, m = self._metrics(roic=30.0, wacc=None, roic_spread=None, ebitda_margin=20.0)
+        try:
+            g = next(x for x in screen.gate3(m, cfg) if x.name == "roic_wacc_spread")
+            assert not g.passed
+            assert "risk_free_rate" in (g.reason or "")
+        finally:
+            c.close()
+
+    def test_roe_variant_still_selectable_for_comparison(self, cfg):
+        c, m = self._metrics(roe=20.0)
+        try:
+            names = [g.name for g in screen.gate3(m, cfg, use_roic=False)]
+            assert "roe" in names and "roic" not in names
+        finally:
+            c.close()
+
+    def test_non_blocking_failure_does_not_count_as_rejection(self, cfg):
+        c, m = self._metrics(roe=2.0, roic=25.0, wacc=11.0, roic_spread=14.0,
+                             ebitda_margin=20.0)
+        try:
+            v = screen.SymbolVerdict(symbol="RC", name="Roic Co")
+            v.gates = screen.gate3(m, cfg)
+            v.n_failed = sum(1 for g in v.gates if not g.passed and g.blocking)
+            assert v.n_failed == 0 and v.clean
+        finally:
+            c.close()
 
 
 def test_config_hash_differs_between_thresholds(tmp_path):

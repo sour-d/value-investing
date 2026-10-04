@@ -36,11 +36,17 @@ class ScreenResult:
     comparable: bool = True
     note: str | None = None
     unmeasurable: tuple[str, ...] = ()
+    variant: str = "roic"
+    # Populated only when the profitability variant itself changed. Comparing
+    # across variants is normally refused, so this is the one case where the
+    # difference is the point rather than a reason to distrust the numbers.
+    variant_delta: dict[str, Any] | None = None
 
     def payload(self) -> dict[str, Any]:
         return {
             "run_id": self.run_id,
             "config_hash": self.config_hash,
+            "variant": self.variant,
             "n_clean": self.n_clean,
             "universe_size": self.universe_size,
             "passers": self.passers,
@@ -49,6 +55,7 @@ class ScreenResult:
             "comparable": self.comparable,
             "note": self.note,
             "unmeasurable": list(self.unmeasurable),
+            "variant_delta": self.variant_delta,
         }
 
     def render(self) -> str:
@@ -59,6 +66,16 @@ class ScreenResult:
 
         if not self.comparable:
             lines.append(f"no delta: {self.note}")
+            if self.variant_delta:
+                d = self.variant_delta
+                lines.append(f"profitability gate {d['from']} -> {d['to']}: "
+                             f"{len(d['entered'])} in, {len(d['left'])} out, "
+                             f"{len(d['stable'])} unchanged")
+                for label, key in (("only passes " + d["to"], "entered"),
+                                   ("only passed " + d["from"], "left")):
+                    if d[key]:
+                        lines.append(f"  {label}: {', '.join(d[key])}")
+                lines.append("  (a gate change, not a change in the business)")
         elif not self.entrants and not self.exits:
             lines.append("no change since last run")
         else:
@@ -80,7 +97,7 @@ class ScreenResult:
 def run(
     full: bool = False,
     db_path: str | None = None,
-    use_roic: bool = False,
+    use_roic: bool | None = None,
 ) -> ScreenResult:
     """Evaluate the universe and persist a ``screen_run`` with its gate results."""
     cfg = config_mod.load()
@@ -126,9 +143,24 @@ def _previous_run(
     return clean - failed, row["config_hash"], row["notes"], True
 
 
+def variant_of(cfg: config_mod.Config, use_roic: bool | None = None) -> str:
+    """Which profitability gate is in force.
+
+    Resolved from config so the variant recorded in `screen_run.notes` cannot
+    disagree with what was actually evaluated. `None` means "ask the config";
+    an explicit bool overrides for back-to-back comparison.
+    """
+    if use_roic is None:
+        use_roic = str(cfg.get("gate3.profitability.primary", "roic")).lower() == "roic"
+    return "roic" if use_roic else "roe"
+
+
 def _run_locked(
-    conn: sqlite3.Connection, cfg: config_mod.Config, full: bool, use_roic: bool
+    conn: sqlite3.Connection, cfg: config_mod.Config, full: bool,
+    use_roic: bool | None = None,
 ) -> ScreenResult:
+    variant = variant_of(cfg, use_roic)
+    use_roic = variant == "roic"
     verdicts = screen.evaluate_universe(conn, cfg, use_roic=use_roic)
     passers = sorted(v.symbol for v in verdicts if v.clean)
     universe_size = len(verdicts)
@@ -139,7 +171,7 @@ def _run_locked(
         "VALUES (?,?,?,?,?,?)",
         (started, cfg.config_hash,
          json.dumps(cfg.resolved(), sort_keys=True, default=str),
-         universe_size, len(passers), "roic" if use_roic else "roe"),
+         universe_size, len(passers), variant),
     )
     run_id = int(cur.lastrowid)
 
@@ -162,15 +194,32 @@ def _run_locked(
         unmeasurable=tuple(cfg.get("unmeasurable.items", ()) or ()),
     )
 
-    variant = "roic" if use_roic else "roe"
     if not has_previous:
         result.note = "first recorded run; no baseline to compare against"
         result.comparable = False
     elif prev_variant != variant:
+        # The gates differ, so an ordinary run-over-run delta would report a
+        # threshold change as if the business had changed. That is exactly the
+        # misreading to avoid — but when the variant flip IS the event under
+        # review (the Phase 5 switch), naming the difference is the whole point.
         result.comparable = False
+        result.variant_delta = {
+            "from": prev_variant,
+            "to": variant,
+            "previous_passers": sorted(prev_pasers),
+            "current_passers": list(passers),
+            "entered": sorted(set(passers) - prev_pasers),
+            "left": sorted(prev_pasers - set(passers)),
+            "stable": sorted(set(passers) & prev_pasers),
+            "note": (
+                "the profitability gate changed, so this list shows what that "
+                "choice did. It is not evidence that any business changed."
+            ),
+        }
         result.note = (
             f"previous run used the {prev_variant} gate, this one uses {variant}; "
-            "different gates, so entrants/exits would be meaningless"
+            "different gates, so entrants/exits would be meaningless. "
+            "See variant_delta for the effect of that change"
         )
     elif prev_hash and prev_hash != cfg.config_hash:
         result.comparable = False
@@ -190,7 +239,13 @@ def explain(symbol: str, db_path: str | None = None) -> str:
     conn = db.connect(db_path)
     db.apply_schema(conn)
     try:
-        verdict = screen.evaluate_symbol(conn, symbol.upper(), cfg)
+        # The valuation inputs must be passed in, or WACC is never computed and
+        # the spread gate fails for a reason that has nothing to do with the
+        # company being explained.
+        verdict = screen.evaluate_symbol(
+            conn, symbol.upper(), cfg,
+            risk_free=cfg.get("valuation.inputs.risk_free_rate"),
+            erp=cfg.get("valuation.inputs.equity_risk_premium"))
         m = M.compute(conn, symbol.upper(),
                       risk_free_rate=cfg.get("valuation.inputs.risk_free_rate"),
                       equity_risk_premium=cfg.get("valuation.inputs.equity_risk_premium"))
@@ -213,6 +268,8 @@ def explain(symbol: str, db_path: str | None = None) -> str:
             bits.append(f"(need {g.op} {g.threshold:g})")
         elif g.threshold is not None:
             bits.append(f"(ref {g.threshold:g})")
+        if not g.blocking:
+            bits.append("[secondary]")
         if g.reason:
             bits.append(f"({g.reason})")
         elif g.note:
@@ -222,11 +279,6 @@ def explain(symbol: str, db_path: str | None = None) -> str:
     lines.append("")
     lines.append(f"periods: income={m.n_periods_income} balance={m.n_periods_balance} "
                  f"cashflow={m.n_periods_cashflow}")
-    roic = f"{m.roic:.2f}" if m.roic is not None else "n/a"
-    wacc = f"{m.wacc:.2f}" if m.wacc is not None else "n/a"
-    spread = f"{m.roic_spread:.2f}" if m.roic_spread is not None else "n/a"
-    lines.append(f"roic={roic} wacc={wacc} spread={spread} "
-                 f"(computed, not yet a gate — Phase 5)")
     if m.missing_items:
         lines.append(f"missing items: {', '.join(m.missing_items[:8])}")
     return "\n".join(lines)
@@ -238,7 +290,13 @@ def explain_payload(symbol: str, db_path: str | None = None) -> dict[str, Any]:
     conn = db.connect(db_path)
     db.apply_schema(conn)
     try:
-        verdict = screen.evaluate_symbol(conn, symbol.upper(), cfg)
+        # The valuation inputs must be passed in, or WACC is never computed and
+        # the spread gate fails for a reason that has nothing to do with the
+        # company being explained.
+        verdict = screen.evaluate_symbol(
+            conn, symbol.upper(), cfg,
+            risk_free=cfg.get("valuation.inputs.risk_free_rate"),
+            erp=cfg.get("valuation.inputs.equity_risk_premium"))
         m = M.compute(conn, symbol.upper(),
                       risk_free_rate=cfg.get("valuation.inputs.risk_free_rate"),
                       equity_risk_premium=cfg.get("valuation.inputs.equity_risk_premium"))
@@ -252,10 +310,13 @@ def explain_payload(symbol: str, db_path: str | None = None) -> dict[str, Any]:
         "quality_score": verdict.quality_score,
         "blocked": verdict.blocked,
         "clean": verdict.clean,
+        "n_failed": verdict.n_failed,
+        # blocking=False marks a recorded check that cannot reject the symbol,
+        # so a consumer counting failures does not treat it as one.
         "gates": [
-            {"gate": g.gate, "name": g.name, "passed": g.passed, "metric": g.metric,
-             "value": g.value, "threshold": g.threshold, "reason": g.reason,
-             "note": g.note}
+            {"gate": g.gate, "name": g.name, "passed": g.passed, "blocking": g.blocking,
+             "metric": g.metric, "value": g.value, "threshold": g.threshold,
+             "reason": g.reason, "note": g.note}
             for g in verdict.gates
         ],
         "metrics": {
