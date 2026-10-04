@@ -24,6 +24,21 @@ def _emit(payload: Any, as_json: bool, human: Callable[[Any], str] | None = None
         print(json.dumps(payload, indent=2, default=str))
 
 
+def _common_trade_args(p: argparse.ArgumentParser) -> None:
+    """Arguments shared by `buy` and `sell`.
+
+    `--reason` is required rather than optional. A trade with no recorded
+    rationale cannot be reviewed later, and the whole point of keeping a ledger
+    is that the reason outlives the mood at the time.
+    """
+    p.add_argument("--fees", type=float, default=0.0, help="brokerage and statutory charges")
+    p.add_argument("--reason", required=True, help="why this trade")
+    p.add_argument("--thesis-ref", help="path to the research note behind it")
+    p.add_argument("--override-integrity", metavar="WHY",
+                   help="record an attested check as reviewed anyway; WHY is stored "
+                        "on the transaction permanently")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="stocks",
@@ -69,6 +84,18 @@ def build_parser() -> argparse.ArgumentParser:
     pnl = sub.add_parser("pnl", help="realised and unrealised profit and loss")
     pnl.add_argument("--benchmark", action="store_true", help="compare with the index")
     pnl.add_argument("--since", metavar="YYYY-MM-DD")
+
+    buy = sub.add_parser("buy", help="record a purchase")
+    buy.add_argument("symbol")
+    buy.add_argument("qty", type=int)
+    buy.add_argument("price", type=float)
+    _common_trade_args(buy)
+
+    sell = sub.add_parser("sell", help="record a sale")
+    sell.add_argument("symbol")
+    sell.add_argument("qty", type=int)
+    sell.add_argument("price", type=float)
+    _common_trade_args(sell)
 
     watch = sub.add_parser("watch", help="manage the watchlist")
     watch.add_argument("action", nargs="?", choices=["list", "add", "rm"])

@@ -6,6 +6,7 @@ command's behaviour is testable on its own.
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Callable
 
 
@@ -110,9 +111,55 @@ def cmd_screen(args: Any) -> int:
 @_impl("pnl")
 def cmd_pnl(args: Any) -> int:
     from . import portfolio
+    from .cli import _emit
 
-    print(portfolio.render_pnl(db_path=args.db, since=args.since, benchmark=args.benchmark))
+    report = portfolio.pnl(db_path=args.db, since=args.since, benchmark=args.benchmark)
+    _emit(report.payload(), getattr(args, "json", False),
+          human=lambda _: portfolio.render_pnl(
+              db_path=args.db, since=args.since, benchmark=args.benchmark))
     return 0
+
+
+@_impl("buy")
+def cmd_buy(args: Any) -> int:
+    return _record_trade(args, "BUY")
+
+
+@_impl("sell")
+def cmd_sell(args: Any) -> int:
+    return _record_trade(args, "SELL")
+
+
+def _record_trade(args: Any, side: str) -> int:
+    from . import db, portfolio
+    from .cli import _emit
+
+    conn = db.connect(args.db)
+    db.apply_schema(conn)
+    try:
+        tx_id = portfolio.record_transaction(
+            conn, args.symbol, side, args.qty, args.price,
+            fees=args.fees, reason=args.reason, thesis_ref=args.thesis_ref,
+            override_integrity=args.override_integrity,
+        )
+        result = {
+            "id": tx_id, "symbol": args.symbol.upper(), "side": side,
+            "qty": args.qty, "price": args.price, "fees": args.fees,
+            "reason": args.reason,
+            "override_integrity": args.override_integrity,
+            "position_qty": portfolio.held_qty(conn, args.symbol),
+        }
+        _emit(result, getattr(args, "json", False), human=lambda p: (
+            f"recorded {p['side']} {p['qty']} {p['symbol']} @ {p['price']:g} "
+            f"(tx #{p['id']}); now holding {p['position_qty']}"))
+        return 0
+    except portfolio.PortfolioError as e:
+        # A refusal is information, not a crash: print it and exit non-zero so a
+        # script notices.
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
 
 
 @_impl("watch")
