@@ -37,16 +37,22 @@ def cfg():
     return config.load()
 
 
-@pytest.fixture(scope="module")
-def populated(cfg):
-    """The real database, imported once if it is not already populated."""
-    db_path = REPO / "data" / "stocks.db"
-    if not db_path.exists() or db_path.stat().st_size < 1_000_000:
-        subprocess.run(
-            [sys.executable, str(REPO / "scripts" / "import_baseline.py"), str(SRC)],
-            check=True, capture_output=True,
-        )
-    c = db.connect()
+@pytest.fixture(scope="session")
+def populated(tmp_path_factory):
+    """A throwaway database built from the pilot artefacts.
+
+    Deliberately not the canonical data/stocks.db. These tests used to import
+    into it, so a test run mutated the user's real database — and a suite that
+    writes 166k rows as a side effect is one that can be run destructively by
+    accident. The import takes ~1.6s, which is cheap for being hermetic.
+    """
+    db_path = tmp_path_factory.mktemp("pilot") / "stocks.db"
+    subprocess.run(
+        [sys.executable, str(REPO / "scripts" / "import_baseline.py"), str(SRC),
+         "--db", str(db_path)],
+        check=True, capture_output=True,
+    )
+    c = db.connect(db_path)
     db.apply_schema(c)
     yield c
     c.close()

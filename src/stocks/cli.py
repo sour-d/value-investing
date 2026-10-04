@@ -16,6 +16,20 @@ from . import __version__
 from .judgment import DIMENSIONS, STATUS_ORDER
 
 
+def _add_global_args(p: argparse.ArgumentParser) -> None:
+    """Accept the global flags after the subcommand too.
+
+    `stocks --json screen` is valid argparse but nobody types it that way, and
+    AGENTS.md promises every command supports --json. SUPPRESS matters: a
+    subparser default would otherwise overwrite a value given before the
+    subcommand, so both orders have to work.
+    """
+    p.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                   help="emit machine-readable JSON instead of formatted text")
+    p.add_argument("--db", type=Path, default=argparse.SUPPRESS,
+                   help="override database path")
+
+
 def _emit(payload: Any, as_json: bool, human: Callable[[Any], str] | None = None) -> None:
     if as_json:
         print(json.dumps(payload, indent=2, default=str))
@@ -62,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="override database path",
     )
+    p.set_defaults(json=False, db=None)
 
     sub = p.add_subparsers(dest="command")
 
@@ -135,6 +150,9 @@ def build_parser() -> argparse.ArgumentParser:
                            help="record one qualitative framework dimension")
     integrity.add_argument("--assessment", help="the assessment text")
     integrity.add_argument("--rationale", help="why that assessment holds")
+
+    for action in sub.choices.values():
+        _add_global_args(action)
 
     return p
 

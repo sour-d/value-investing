@@ -8,10 +8,10 @@ duplicate file found during research.
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import pickle
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -231,8 +231,8 @@ def detect_issues(conn) -> dict[str, int]:
     return counts
 
 
-def main(src: Path, cfg: Config) -> int:
-    conn = db.connect()
+def main(src: Path, cfg: Config, db_path: Path | None = None) -> int:
+    conn = db.connect(db_path)
     db.apply_schema(conn)
 
     csv_path = src / "smcap250.csv"
@@ -261,5 +261,12 @@ def main(src: Path, cfg: Config) -> int:
 
 
 if __name__ == "__main__":
+    # argparse rather than sys.argv[1]: a silently ignored third argument used
+    # to make `--db somewhere-else` write to the real database instead.
+    _ap = argparse.ArgumentParser(description=__doc__)
+    _ap.add_argument("src", type=Path, help="directory holding the pilot artefacts")
+    _ap.add_argument("--db", type=Path, default=None,
+                     help="database to import into (default: the canonical one)")
+    _args = _ap.parse_args()
     cfg = Config(data={}, source=Path(), config_hash="", gating_hash="")
-    raise SystemExit(main(Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/opencode"), cfg))
+    raise SystemExit(main(_args.src, cfg, _args.db))
