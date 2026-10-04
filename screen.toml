@@ -1,0 +1,152 @@
+# Quantitative screen configuration.
+#
+# Every threshold carries a WHY comment. Read it before changing a number.
+#
+# Changing this file changes what "a passer" means. Every run stores a
+# config_hash, and the report refuses to compare two runs made under
+# different thresholds — because entrants/exits across different
+# thresholds are not information.
+#
+# Gates are necessary, not sufficient. In the pilot run, 3 of 9 names that
+# cleared every gate were still bad buys. A passer is a research queue
+# entry, never a buy.
+
+[universe]
+index = "NIFTY SMALLCAP 250"
+csv = "https://www.niftyindices.com/IndexConstituent/ind_niftysmallcap250list.csv"
+benchmark = "NIFTY_SMALLCAP250"
+
+# ── Gate 0 · data sufficiency ────────────────────────────────────────────────
+# Runs before any judgement. A gate evaluated over too little history is
+# theatre: "NI positive in 99% of years" passes trivially at n=2.
+
+[gate0.data_sufficiency]
+# WHY: applied to MIN(period count) across all three statements. 121 of 249
+# pilot symbols had mismatched statement depth (e.g. AWL income=4
+# balance=5), so checking income alone passes names with no usable balance
+# sheet to compute ROIC from.
+min_annual_periods = 4
+# WHY: ACC skips FY2023 and changes fiscal year-end Dec->Mar; GILLETTE jumps
+# 2024-06 -> 2026-03. Four periods with a hole in the middle is not a trend.
+require_contiguous_years = true
+
+# ── Gate 1 · earnings quality ────────────────────────────────────────────────
+# WHY: profit without cash is an accounting artefact.
+
+[gate1.earnings_quality]
+ni_positive_years_ratio   = 0.99   # net income positive every year
+ocf_positive_years_ratio  = 0.99   # operating cash flow positive every year
+# WHY more tolerant: lumpy capex years are normal in Indian smallcaps.
+fcf_positive_years_ratio  = 0.75
+min_ocf_to_ni             = 0.80   # framework comfort is >0.90; <0.70 demands investigation
+max_accruals_ratio        = 0.10   # (NI - OCF) / avg total assets; lower is better
+
+# ── Gate 2 · balance sheet ───────────────────────────────────────────────────
+# WHY: for a smallcap, an equity loss is usually a refinancing event.
+
+[gate2.balance_sheet]
+max_net_debt_to_equity = 0.30
+min_interest_coverage  = 5.0     # EBITDA/interest in the pilot pipeline
+
+[gate2.financial]
+# WHY: banks and NBFCs carry structurally high leverage; D/E alone would
+# reject every one of them. PB + ROE replaces it.
+max_debt_to_equity = 1.8
+
+# ── Gate 3 · profitability ───────────────────────────────────────────────────
+# Pilot pipeline used ROE. Phase 5 switches the primary gate to ROIC.
+
+[gate3.profitability]
+min_roe = 13.0
+min_ebitda_margin = 9.0
+
+# ── Gate 4 · value ───────────────────────────────────────────────────────────
+# WHY: any ONE of these being cheap earns a research slot. This is an OR, and
+# it is deliberately loose — the qualitative layer rejects what survives.
+
+[gate4.value]
+max_pe          = 16.0
+max_ev_ebitda   = 8.0
+min_fcf_yield_pct = 6.0
+
+[gate4.financial]
+max_pb = 1.1
+min_roe = 15.0
+
+# ── Valuation inputs ─────────────────────────────────────────────────────────
+# WHY: no provider supplies the India G-Sec yield. This is the one input in
+# the system that is not derived from data — it is maintained by hand.
+# REQUIRES MANUAL REFRESH; `stocks health` flags it as stale after 180 days.
+
+[valuation.inputs]
+risk_free_rate     = 0.065   # <-- REQUIRES MANUAL REFRESH
+equity_risk_premium = 0.05
+stale_after_days   = 180
+
+# ── Gate 5 · integrity ───────────────────────────────────────────────────────
+# WHY: the framework treats integrity failure as an automatic veto, and no
+# provider supplies promoter pledge, auditor, RPT or regulatory data. So this
+# gate is attested by a human and can never be auto-passed. `stocks buy`
+# refuses while any check is not 'verified'.
+
+[gate5.integrity]
+required_checks = [
+    "promoter_pledge",
+    "auditor",
+    "regulatory",
+    "related_party",
+    "promoter_selling",
+    "auditor_qualification",
+]
+
+# ── Tiering ──────────────────────────────────────────────────────────────────
+# WHY: ranks survivors on business quality independent of price, so a cheap
+# low-quality name does not outrank a solid one.
+
+[tiers.quality_score]
+roe_at_least_15      = 2
+roe_at_least_12      = 1
+ebitda_margin_at_least_15 = 2
+ebitda_margin_at_least_10 = 1
+ocf_conv_at_least_12 = 2
+ocf_conv_at_least_09 = 1
+net_cash             = 2   # net debt/equity <= 0
+low_leverage         = 1   # net debt/equity <= 0.3
+negative_accruals    = 1
+receivables_disciplined = 1  # receivables growth / revenue growth < 1.15
+low_intangibles      = 1   # goodwill+intangibles / total assets < 0.20
+
+tier2_max_failures = 1     # near-misses are the cheapest names to research
+tier3_min_quality  = 7     # a strong business that missed one gate outranks a
+                          # weak one that missed the same gate
+
+# ── Sector overrides ─────────────────────────────────────────────────────────
+
+[sector_overrides.financials]
+# WHY: vendor balance sheets for Indian banks/NBFCs/insurers carry no NPA,
+# CET1, provision coverage or float. A PE/PB verdict here would look
+# authoritative and be unsupported, so the screen refuses to give one.
+requires_filing_analysis = true
+metrics_required = ["NPA_ratio", "CET1", "provision_coverage", "ROA", "cost_of_income"]
+
+# ── Known gaps ───────────────────────────────────────────────────────────────
+# WHY: required by the investment framework, not obtainable from any available
+# feed. `stocks` prints this daily so an absence is never mistaken for a pass.
+
+[unmeasurable]
+items = [
+    "pricing_power",
+    "moat_trend",
+    "maintenance_capex",
+    "shareholder_letters",
+    "sector_regulation",
+    "related_party_pricing",
+]
+
+# ── Sync cadence ─────────────────────────────────────────────────────────────
+
+[sync]
+price_staleness_hours    = 20    # ~1 trading day
+fundamentals_staleness_days = 7  # vendor restates rarely; weekly is ample
+profile_staleness_days   = 7
+full_screen_staleness_days = 7

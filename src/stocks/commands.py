@@ -74,11 +74,18 @@ def cmd_journal(args: Any) -> int:
 @_impl("screen")
 def cmd_screen(args: Any) -> int:
     from . import screencmd
+    from .cli import _emit
 
     if args.explain:
-        print(screencmd.explain(args.explain, db_path=args.db))
+        symbol = args.explain.upper()
+        result = screencmd.explain_payload(symbol, db_path=args.db)
+        _emit(result, getattr(args, "json", False),
+              human=lambda p: screencmd.explain(symbol, db_path=args.db))
         return 0
-    print(screencmd.run(full=args.full, db_path=args.db).render())
+
+    result = screencmd.run(full=args.full, db_path=args.db,
+                           use_roic=getattr(args, "roic", False))
+    _emit(result.payload(), getattr(args, "json", False), human=lambda _: result.render())
     return 0
 
 

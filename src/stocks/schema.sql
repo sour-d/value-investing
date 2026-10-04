@@ -11,6 +11,11 @@ PRAGMA foreign_keys = ON;
 
 -- ─────────────────────────────────────────────────────────────── universe ────
 
+CREATE TABLE IF NOT EXISTS meta_kv (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS universe (
     symbol            TEXT PRIMARY KEY,          -- bare NSE symbol, e.g. 'ACC'
     name              TEXT,
@@ -127,6 +132,7 @@ CREATE TABLE IF NOT EXISTS profile_snapshot (
     float_shares          REAL,
     total_cash            REAL,
     total_debt            REAL,
+    debt_to_equity        REAL,                    -- vendor D/E; financial-sector gate only
     roe                   REAL,
     roa                   REAL,
     profit_margin         REAL,
@@ -189,13 +195,17 @@ CREATE TABLE IF NOT EXISTS gate_result (
     run_id     INTEGER NOT NULL REFERENCES screen_run(run_id),
     symbol     TEXT NOT NULL,
     gate       TEXT NOT NULL,
+    check_name TEXT NOT NULL,
     passed     INTEGER NOT NULL,
     metric     TEXT,
     value      REAL,
-    threshold  TEXT,
-    fail_reason TEXT,
-    PRIMARY KEY (run_id, symbol, gate)
+    threshold  REAL,
+    reason     TEXT,                 -- why it failed, when it failed
+    note       TEXT,                 -- why it was skipped, when unavailable
+    PRIMARY KEY (run_id, symbol, gate, check_name)
 ) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_gate_symbol ON gate_result(symbol, run_id);
 
 -- ────────────────────────────────────────────────────────── ledger ────
 

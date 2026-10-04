@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
     screen = sub.add_parser("screen", help="run or inspect the quantitative screen")
     screen.add_argument("--explain", metavar="SYMBOL", help="show gates for one symbol")
     screen.add_argument("--full", action="store_true", help="force a full re-run")
+    screen.add_argument(
+        "--roic",
+        action="store_true",
+        help="use the ROIC/WACC profitability gate (Phase 5) instead of ROE",
+    )
 
     pnl = sub.add_parser("pnl", help="realised and unrealised profit and loss")
     pnl.add_argument("--benchmark", action="store_true", help="compare with the index")
