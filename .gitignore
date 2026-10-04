@@ -1,0 +1,21 @@
+# local database + raw provider payloads (regenerable via `stocks sync`)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# scratch
+*.pkl
+*.log
+.DS_Store
