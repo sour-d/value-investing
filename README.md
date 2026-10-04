@@ -24,6 +24,8 @@ If nothing changed, that is the output.
 | `stocks pnl [--benchmark]` | Realised/unrealised P&L, XIRR vs index |
 | `stocks health` | Staleness, data-quality flags |
 | `stocks integrity SYM` | Attest the Gate 5 manual checks |
+| `stocks init [--bootstrap]` | Create DB + optionally import baseline |
+| `stocks bootstrap` | Import baseline data into existing DB |
 | `stocks sync [--full]` | Force a data sync |
 
 Every command accepts `--json`.
@@ -50,11 +52,17 @@ Every command accepts `--json`.
 
 ```bash
 uv sync
-stocks init
-uv run python scripts/import_baseline.py /tmp/opencode   # one-shot bootstrap
+stocks init --bootstrap       # one command: schema + baseline import
+# or, if you already ran init:
+stocks bootstrap
 ```
 
-The importer is idempotent: re-running it refreshes values in place and
+Both require the baseline artefacts in `/tmp/opencode`:
+- `smcap250.csv`  — NIFTY SMALLCAP 250 symbols
+- `info.json`     — vendor profile snapshots
+- `fin.pkl`       — annual statements
+
+The importer is idempotent; re-running it refreshes values in place and
 recomputes data-quality issues, so a partial or failed import is safe to repeat.
 
 ## Layout

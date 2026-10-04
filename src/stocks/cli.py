@@ -81,7 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="command")
 
-    sub.add_parser("init", help="create the database and apply the schema")
+    init_p = sub.add_parser("init", help="create the database and apply the schema")
+    init_p.add_argument("--bootstrap", action="store_true",
+                        help="also import the baseline NIFTY SMALLCAP 250 data "
+                             "(requires /tmp/opencode artefacts)")
+    sub.add_parser("bootstrap", help="import baseline data into an existing database")
     sync_p = sub.add_parser("sync", help="fetch stale prices, fundamentals and profile data")
     sync_p.add_argument("--full", action="store_true", help="ignore staleness and refetch everything")
 

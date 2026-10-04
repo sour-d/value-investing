@@ -46,7 +46,44 @@ def cmd_init(args: Any) -> int:
     views = db.view_names(conn)
     print(f"initialised {conn.execute('PRAGMA database_list').fetchone()[2]}")
     print(f"tables: {len(tables)}  views: {len(views)}")
+
+    if getattr(args, "bootstrap", False):
+        return cmd_bootstrap(args)
+
     return 0
+
+
+def cmd_bootstrap(args: Any) -> int:
+    """Import the baseline NIFTY SMALLCAP 250 universe, profiles and fundamentals.
+
+    The artefacts must exist in /tmp/opencode:
+      smcap250.csv  -- symbols and sectors
+      info.json     -- vendor profile snapshots
+      fin.pkl       -- annual statements {fy_end: {item: value}}
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    src = Path("/tmp/opencode")
+    if not (src / "smcap250.csv").exists():
+        print("ERROR: /tmp/opencode/smcap250.csv not found", file=sys.stderr)
+        print("Download the NIFTY SMALLCAP 250 CSV from NSE and place it there.", file=sys.stderr)
+        return 1
+
+    db_path = getattr(args, "db", None)
+    cmd = [sys.executable, str(Path(__file__).resolve().parents[2] / "scripts" / "import_baseline.py"),
+           str(src)]
+    if db_path:
+        cmd += ["--db", str(db_path)]
+
+    try:
+        subprocess.run(cmd, check=True)
+        print("baseline imported")
+        return 0
+    except subprocess.CalledProcessError as e:
+        print(f"import failed: {e}", file=sys.stderr)
+        return e.returncode
 
 
 @_impl("sync")
