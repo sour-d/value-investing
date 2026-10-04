@@ -8,10 +8,7 @@ dependencies = [
     "yfinance>=1.7",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-]
+# `uv run pytest` failed on a fresh clone.
 
 [project.scripts]
 stocks = "stocks.cli:main"
@@ -30,8 +27,11 @@ addopts = "-q"
 [tool.uv]
 package = true
 
+# Installed by a plain `uv sync`, so a fresh clone can run the suite and the
+# linters without asking for anything extra.
 [dependency-groups]
 dev = [
     "mypy>=2.4.0",
+    "pytest>=8.0",
     "ruff>=0.16.10",
 ]

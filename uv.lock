@@ -887,27 +887,20 @@ dependencies = [
     { name = "yfinance" },
 ]
 
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pytest" },
     { name = "ruff" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "yfinance", specifier = ">=1.7" },
-]
-provides-extras = ["dev"]
+requires-dist = [{ name = "yfinance", specifier = ">=1.7" }]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=2.4.0" },
+    { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.16.10" },
 ]
 
