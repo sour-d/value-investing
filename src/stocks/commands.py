@@ -59,10 +59,26 @@ def cmd_sync(args: Any) -> int:
 
 @_impl("health")
 def cmd_health(args: Any) -> int:
-    from . import health
+    from . import db, health
+    from .cli import _emit
 
-    print(health.build(args.db).render())
-    return 0
+    if getattr(args, "explain", None):
+        conn = db.connect(args.db)
+        db.apply_schema(conn)
+        try:
+            lines = health.explain_code(conn, args.explain)
+        finally:
+            conn.close()
+        _emit({"code": args.explain, "symbols": lines}, getattr(args, "json", False),
+              human=lambda p: p["symbols"] and "\n".join(p["symbols"])
+              or f"no open issues with code '{args.explain}'")
+        return 0
+
+    report = health.build(db_path=args.db)
+    _emit(report.payload(), getattr(args, "json", False), human=lambda _: report.render())
+    # Non-zero on 'bad' so a cron wrapper or pre-commit hook notices. A warn is
+    # information, not a failure.
+    return 1 if report.worst == health.BAD else 0
 
 
 @_impl("journal")
