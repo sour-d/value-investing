@@ -127,20 +127,23 @@ def _previous_run(
     if row is None:
         return set(), None, None, False
 
-    clean = {
-        r["symbol"] for r in conn.execute(
-            "SELECT DISTINCT symbol FROM gate_result WHERE run_id = ? AND passed = 1",
-            (row["run_id"],),
-        )
-    }
+    # A symbol is clean when no BLOCKING check failed. Non-blocking failures are
+    # recorded context, not rejections, so they must not be read as one.
     failed = {
         r["symbol"] for r in conn.execute(
-            "SELECT DISTINCT symbol FROM gate_result WHERE run_id = ? AND passed = 0",
+            "SELECT DISTINCT symbol FROM gate_result "
+            "WHERE run_id = ? AND passed = 0 AND blocking = 1",
             (row["run_id"],),
         )
     }
-    # A symbol counts as clean only if it has no failing check at all.
-    return clean - failed, row["config_hash"], row["notes"], True
+    seen = {
+        r["symbol"] for r in conn.execute(
+            "SELECT DISTINCT symbol FROM gate_result WHERE run_id = ?",
+            (row["run_id"],),
+        )
+    }
+    # A blocked symbol (no gate rows at all) is not clean either.
+    return seen - failed, row["config_hash"], row["notes"], True
 
 
 def variant_of(cfg: config_mod.Config, use_roic: bool | None = None) -> str:
@@ -177,9 +180,10 @@ def _run_locked(
 
     conn.executemany(
         "INSERT INTO gate_result "
-        "(run_id,symbol,gate,check_name,passed,metric,value,threshold,reason,note) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [(run_id, v.symbol, *g.as_row()) for v in verdicts for g in v.gates],
+        "(run_id,symbol,gate,check_name,passed,metric,value,threshold,reason,note,"
+        "blocking) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [(run_id, v.symbol, *g.as_row(), int(g.blocking))
+         for v in verdicts for g in v.gates],
     )
     conn.execute("UPDATE screen_run SET finished_at = ? WHERE run_id = ?", (_now(), run_id))
     conn.commit()

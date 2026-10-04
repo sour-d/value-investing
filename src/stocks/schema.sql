@@ -202,6 +202,11 @@ CREATE TABLE IF NOT EXISTS gate_result (
     threshold  REAL,
     reason     TEXT,                 -- why it failed, when it failed
     note       TEXT,                 -- why it was skipped, when unavailable
+    -- Whether a failed check rejects the symbol. Phase 5 demoted ROE to a
+    -- recorded non-blocking check, so `passed = 0` alone no longer means
+    -- "rejected" — reconstructing a clean set from it made every sub-threshold
+    -- ROE look like a permanent failure and the name an entrant on every run.
+    blocking   INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (run_id, symbol, gate, check_name)
 ) WITHOUT ROWID;
 

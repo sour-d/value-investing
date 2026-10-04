@@ -229,3 +229,58 @@ def test_report_stays_short(conn):
     # The passer list is the only unbounded part; the framing must stay short.
     assert result.n_clean == 60
     assert len(rendered.splitlines()) <= 8
+
+def test_non_blocking_failure_does_not_make_a_name_an_entrant_forever(conn):
+    """A sub-threshold ROE is recorded, not a rejection.
+
+    Phase 5 demoted ROE to a non-blocking check. Reading `passed = 0` as a
+    failure made every name with a soft ROE look permanently rejected, so it was
+    reported as NEW on every single run — a change report that cries wolf is
+    worse than none. `gate_result.blocking` is what distinguishes the two.
+    """
+    _seed(conn, "AAA", clean=True)
+    # AAA clears ROIC and the spread, so the only failing check is the secondary.
+    # 'Net Income' is the vendor item name; `item` stores vendor labels, not
+    # the local metric key.
+    conn.execute(
+        "UPDATE fundamentals_annual SET value = 12.0 "
+        "WHERE symbol = 'AAA' AND item = 'Net Income'"
+    )
+    conn.commit()
+
+    first = screencmd._run_locked(conn, _cfg(), full=False, use_roic=True)
+    assert set(first.passers) == {"AAA"}
+
+    failing = conn.execute(
+        "SELECT check_name, passed, blocking FROM gate_result "
+        "WHERE run_id = ? AND symbol = 'AAA' AND passed = 0",
+        (first.run_id,),
+    ).fetchall()
+    assert [r["check_name"] for r in failing] == ["roe_secondary"]
+    assert all(r["blocking"] == 0 for r in failing)
+
+    # Nothing about AAA changed, so nothing should be reported as changing.
+    second = screencmd._run_locked(conn, _cfg(), full=False, use_roic=True)
+
+    assert second.comparable
+    assert second.entrants == [] and second.exits == []
+    assert "no change" in second.render()
+
+
+def test_blocking_failure_is_still_an_exit(conn):
+    """The fix must not soften a real rejection: a failing blocking check still
+    drops the name out of the clean set."""
+    _seed(conn, "AAA", clean=True)
+    _seed(conn, "BBB", clean=True)
+    screencmd._run_locked(conn, _cfg(), full=False, use_roic=True)
+
+    # Break the primary gate rather than the secondary one.
+    conn.execute(
+        "UPDATE fundamentals_annual SET value = 1.0 "
+        "WHERE symbol = 'BBB' AND item = 'EBIT'"
+    )
+    conn.commit()
+    second = screencmd._run_locked(conn, _cfg(), full=False, use_roic=True)
+
+    assert "BBB" in second.exits
+    assert "AAA" not in second.exits

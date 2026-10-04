@@ -45,7 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="stocks",
         description=(
             "Local screening, journal and portfolio tracker for "
-            "NIFTY SMALLCAP 250 equities."
+            "NIFTY SMALLCAP 250 equities.\n\n"
+            "Run `stocks` with no arguments for the daily loop: sync stale data, "
+            "run the screen, print a short delta, and write the journal entry."
         ),
     )
     p.add_argument("--version", action="version", version=f"stocks {__version__}")
@@ -66,10 +68,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("init", help="create the database and apply the schema")
     sync_p = sub.add_parser("sync", help="fetch stale prices, fundamentals and profile data")
     sync_p.add_argument("--full", action="store_true", help="ignore staleness and refetch everything")
+
+    journal_p = sub.add_parser("journal", help="write today's journal entry")
+    journal_p.add_argument("--notes", help="free text appended to the entry")
+    journal_p.add_argument("--print", action="store_true", dest="show",
+                           help="print the entry instead of writing it")
+    journal_p.add_argument("--no-sync", action="store_true",
+                           help="skip the sync step; use stored data as-is")
     health_p = sub.add_parser("health", help="staleness and data-quality report")
     health_p.add_argument("--explain", metavar="CODE",
                           help="list the symbols carrying one issue code")
-    sub.add_parser("journal", help="write and commit today's journal entry")
 
     screen = sub.add_parser("screen", help="run or inspect the quantitative screen")
     screen.add_argument("--explain", metavar="SYMBOL", help="show gates for one symbol")
@@ -136,8 +144,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if not args.command:
-        parser.print_help()
-        return 0
+        # No subcommand means the daily loop. This is the one command the tool
+        # exists for, so it should not need to be named.
+        from . import commands
+
+        return commands.cmd_daily(args)
 
     from . import commands
 

@@ -39,6 +39,10 @@ def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
 _ADDITIVE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("profile_snapshot", "debt_to_equity", "REAL"),
     ("profile_snapshot", "vendor_invested_capital", "REAL"),
+    # Phase 5. Rows written before this column existed carry the default of 1,
+    # which matches the pre-Phase-5 behaviour: every check was blocking. Their
+    # deltas remain as recorded rather than being silently reinterpreted.
+    ("gate_result", "blocking", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 

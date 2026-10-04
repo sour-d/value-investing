@@ -60,6 +60,19 @@ the reason is recorded in the transaction, so every override stays auditable.
 Do not record a check as `verified` without evidence. `unknown` is a valid and
 honest answer; a false `verified` is not.
 
+## The daily loop
+
+`stocks` with no subcommand is the whole daily habit: sync stale data, screen,
+print a delta-first report, write `journal/YYYY-MM-DD.md`. The report is capped
+at `daily.MAX_LINES` and trims from the least decision-relevant line up, always
+listing what it dropped — a silently shortened list reads as a complete one.
+
+`gate_result.blocking` distinguishes a failed check from a failed *blocking*
+check. Phase 5 demoted ROE to non-blocking, so `passed = 0` alone no longer
+means "rejected". Reconstructing the clean set without this made every soft-ROE
+name an entrant on every run. Any new query over `gate_result` must filter on
+`blocking = 1`.
+
 ## Conventions
 
 - Python >= 3.13, managed with `uv`. `uv run stocks ...`

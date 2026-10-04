@@ -277,3 +277,39 @@ def cmd_integrity(args: Any) -> int:
         return 2
     finally:
         conn.close()
+
+
+def cmd_daily(args: Any) -> int:
+    """The daily loop: sync stale data, screen, report, journal.
+
+    This is what `stocks` with no subcommand runs, and the whole point of the
+    tool. It writes the journal entry rather than leaving that to a separate
+    step, because a habit that needs two commands is a habit that gets skipped.
+    """
+    from . import daily
+    from .cli import _emit
+
+    result = daily.build(db_path=getattr(args, "db", None))
+    result.journal_path = str(daily.write_journal(result))
+    _emit(result.payload(), getattr(args, "json", False), human=daily.render)
+    # A sync error should be visible in the exit code; the report still prints.
+    return 1 if result.errors else 0
+
+
+@_impl("journal")
+def cmd_journal(args: Any) -> int:
+    """Write today's journal entry, optionally re-running the day's work."""
+    from . import daily
+    from .cli import _emit
+
+    result = daily.build(db_path=args.db, do_sync=not args.no_sync)
+    if args.show:
+        # Dry read: show exactly what would be recorded without writing it.
+        _emit(result.payload(), getattr(args, "json", False),
+              human=lambda _: daily.render_journal(result, args.notes))
+        return 1 if result.errors else 0
+    p = daily.write_journal(result, args.notes)
+    result.journal_path = str(p)
+    _emit(result.payload(), getattr(args, "json", False),
+          human=lambda r: f"wrote {r['journal_path']}")
+    return 1 if result.errors else 0
