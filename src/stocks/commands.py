@@ -164,23 +164,116 @@ def _record_trade(args: Any, side: str) -> int:
 
 @_impl("watch")
 def cmd_watch(args: Any) -> int:
-    from . import screencmd
+    from . import db, judgment
+    from .cli import _emit
 
-    print(screencmd.watch(args.action or "list", db_path=args.db))
-    return 0
+    conn = db.connect(args.db)
+    db.apply_schema(conn)
+    try:
+        action = getattr(args, "action", None) or "list"
+        if action == "list":
+            rows = judgment.watchlist(conn)
+            _emit({"entries": rows}, getattr(args, "json", False),
+                  human=lambda _: judgment.render_watchlist(conn))
+            return 0
+        if not args.symbol:
+            print(f"'stocks watch {action}' needs a symbol", file=sys.stderr)
+            return 2
+        if action == "add":
+            sym = judgment.add_watch(
+                conn, args.symbol, buy_line=args.buy_line, fv_low=args.fv_low,
+                fv_high=args.fv_high, status=args.status or "watch",
+                thesis_path=args.thesis, entry_reason=args.reason)
+            detail = f"{sym} added as {args.status or 'watch'}"
+        elif action == "rm":
+            judgment.remove_watch(conn, args.symbol)
+            detail = f"{args.symbol.upper()} removed"
+        else:
+            if not args.status:
+                print("'stocks watch status' needs --status", file=sys.stderr)
+                return 2
+            sym = judgment.set_status(conn, args.symbol, args.status)
+            detail = f"{sym} is now {args.status}"
+        _emit({"detail": detail}, getattr(args, "json", False), human=lambda p: p["detail"])
+        return 0
+    except judgment.PortfolioError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
 
 
 @_impl("why")
 def cmd_why(args: Any) -> int:
-    from . import screencmd
+    from . import judgment
+    from .cli import _emit
 
-    print(screencmd.why(args.symbol, db_path=args.db))
+    payload = judgment.why_payload(args.symbol, db_path=args.db)
+    _emit(payload, getattr(args, "json", False), human=judgment.render_why)
     return 0
 
 
 @_impl("integrity")
 def cmd_integrity(args: Any) -> int:
-    from . import integrity
+    """Attest Gate 5 checks, record verdicts and qualitative assessments."""
+    from . import config as config_mod, db, judgment
+    from .cli import _emit
 
-    print(integrity.render(args.symbol, db_path=args.db))
-    return 0
+    conn = db.connect(args.db)
+    db.apply_schema(conn)
+    try:
+        cfg = config_mod.load()
+        # Recording a check needs a name; a bare `stocks integrity SYM` just
+        # shows the ledger, which is the useful default.
+        if args.check_name:
+            if not args.status:
+                print("--set needs --status", file=sys.stderr)
+                return 2
+            judgment.attest(conn, cfg, args.symbol, args.check_name,
+                            args.status, args.evidence)
+            detail = f"{args.symbol.upper()}: {args.check_name} = {args.status}"
+            _emit({"detail": detail, "symbol": args.symbol.upper(),
+                   "check_name": args.check_name, "status": args.status,
+                   "evidence": args.evidence}, getattr(args, "json", False),
+                  human=lambda p: p["detail"])
+            return 0
+
+        if args.verdict:
+            if not args.reason:
+                print("--verdict needs --reason; an unexplained call is not "
+                      "reviewable", file=sys.stderr)
+                return 2
+            as_of = judgment.record_verdict(
+                conn, args.symbol, args.verdict, args.reason, args.evidence)
+            _emit({"detail": f"{args.symbol.upper()} verdict {args.verdict} on {as_of}",
+                   "symbol": args.symbol.upper(), "verdict": args.verdict,
+                   "reason": args.reason, "as_of": as_of},
+                  getattr(args, "json", False), human=lambda p: p["detail"])
+            return 0
+
+        if args.dimension:
+            if not args.assessment or not args.rationale:
+                print("--dimension needs --assessment and --rationale",
+                      file=sys.stderr)
+                return 2
+            as_of = judgment.record_assessment(
+                conn, args.symbol, args.dimension, args.assessment, args.rationale)
+            _emit({"detail": f"{args.symbol.upper()} {args.dimension} recorded "
+                             f"({as_of})", "symbol": args.symbol.upper(),
+                   "dimension": args.dimension, "as_of": as_of},
+                  getattr(args, "json", False), human=lambda p: p["detail"])
+            return 0
+
+        if not args.symbol:
+            print("integrity needs a symbol", file=sys.stderr)
+            return 2
+        _emit({"symbol": args.symbol.upper(),
+               "checks": judgment.portfolio.integrity_ledger(conn, cfg, args.symbol)},
+              getattr(args, "json", False),
+              human=lambda _: judgment.render_integrity(conn, cfg, args.symbol))
+        return 0
+    except judgment.PortfolioError as e:
+        print(f"refused: {e}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()

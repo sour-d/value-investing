@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import __version__
+from .judgment import DIMENSIONS, STATUS_ORDER
 
 
 def _emit(payload: Any, as_json: bool, human: Callable[[Any], str] | None = None) -> None:
@@ -98,13 +99,34 @@ def build_parser() -> argparse.ArgumentParser:
     _common_trade_args(sell)
 
     watch = sub.add_parser("watch", help="manage the watchlist")
-    watch.add_argument("action", nargs="?", choices=["list", "add", "rm"])
+    watch.add_argument("action", nargs="?", choices=["list", "add", "rm", "status"],
+                       default="list")
+    watch.add_argument("symbol", nargs="?")
+    watch.add_argument("--status", choices=list(STATUS_ORDER))
+    watch.add_argument("--buy-line", type=float)
+    watch.add_argument("--fv-low", type=float)
+    watch.add_argument("--fv-high", type=float)
+    watch.add_argument("--reason")
+    watch.add_argument("--thesis", help="path to the research note")
 
-    why = sub.add_parser("why", help="thesis, reasons and monitoring triggers")
+    why = sub.add_parser("why", help="measured facts, thesis, and what is unverified")
     why.add_argument("symbol")
 
     integrity = sub.add_parser("integrity", help="attest the manual Gate 5 checks")
-    integrity.add_argument("symbol")
+    integrity.add_argument("symbol", nargs="?")
+    integrity.add_argument("--set", dest="check_name",
+                           help="check name to record, e.g. promoter_pledge")
+    integrity.add_argument("--status", choices=["verified", "failed", "unknown"])
+    integrity.add_argument("--evidence", help="filing, page or disclosure checked")
+    # --reason carries the rationale for both a verdict and an assessment; one
+    # flag keeps the command single-purpose per invocation.
+    integrity.add_argument("--reason", help="why this verdict or assessment holds")
+    integrity.add_argument("--verdict", choices=["preferred", "watch", "avoid"],
+                           help="record a research verdict")
+    integrity.add_argument("--dimension", choices=list(DIMENSIONS),
+                           help="record one qualitative framework dimension")
+    integrity.add_argument("--assessment", help="the assessment text")
+    integrity.add_argument("--rationale", help="why that assessment holds")
 
     return p
 
