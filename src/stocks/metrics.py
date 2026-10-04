@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
 
 Series = list[tuple[str, float]]
 
@@ -263,7 +263,7 @@ def compute(
 
     ocf, fcf = series(cfs, "ocf"), series(cfs, "fcf")
     capex, dna = series(cfs, "capex"), series(cfs, "d_and_a")
-    d_wc = series(cfs, "change_in_wc")
+    series(cfs, "change_in_wc")
 
     eq, ta = series(bal, "equity"), series(bal, "total_assets")
     debt, cash = series(bal, "total_debt"), series(bal, "cash")
@@ -279,7 +279,7 @@ def compute(
     m.debt_avg, m.cash_avg, m.invcap_avg = mean(debt), mean(cash), mean(invcap)
     m.intx_avg, m.pretax_avg, m.tax_avg = mean(intx), mean(pretax), mean(tax)
 
-    vals = lambda s: [v for _, v in s]  # noqa: E731
+    vals = lambda s: [v for _, v in s]
 
     m.ni_pos = pos_frac(vals(ni))
     m.ocf_pos = pos_frac(vals(ocf))

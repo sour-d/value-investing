@@ -22,7 +22,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import db, paths
-from .config import Config, load as load_config
+from .config import Config
+from .config import load as load_config
 from .sync import _hours_since, _last_fetch, resolve_benchmark
 
 OK = "ok"
@@ -179,7 +180,7 @@ def manual_input_checks(cfg: Config) -> list[Check]:
         checks.append(Check("risk_free_rate", BAD, "unset, so ROIC>WACC cannot be judged",
                             "set valuation.inputs.risk_free_rate"))
     elif row is not None:
-        age = (dt.datetime.now(dt.timezone.utc) - row).days
+        age = (dt.datetime.now(dt.UTC) - row).days
         if age >= stale_after:
             checks.append(Check(
                 "risk_free_rate", WARN,
@@ -193,7 +194,7 @@ def manual_input_checks(cfg: Config) -> list[Check]:
 
 def _config_mtime() -> dt.datetime | None:
     try:
-        return dt.datetime.fromtimestamp(paths.config_path().stat().st_mtime, dt.timezone.utc)
+        return dt.datetime.fromtimestamp(paths.config_path().stat().st_mtime, dt.UTC)
     except OSError:
         return None
 

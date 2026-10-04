@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from stocks import config, db, metrics as M, screen
+from stocks import config, db, screen
+from stocks import metrics as M
 
 PILOT_PASSERS = {
     "BSOFT", "CHAMBLFERT", "GESHIP", "IGL", "KPITTECH",

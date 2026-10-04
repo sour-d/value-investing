@@ -113,7 +113,7 @@ def view_names(conn: sqlite3.Connection) -> list[str]:
 
 
 def count(conn: sqlite3.Connection, table: str, where: str = "") -> int:
-    sql = f"SELECT COUNT(*) AS n FROM {table}"  # noqa: S608 - table names are literals
+    sql = f"SELECT COUNT(*) AS n FROM {table}"
     if where:
         sql += f" WHERE {where}"
     return int(conn.execute(sql).fetchone()["n"])

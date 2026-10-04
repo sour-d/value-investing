@@ -13,15 +13,16 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from . import config as config_mod
-from . import db, metrics as M, screen
+from . import db, screen
+from . import metrics as M
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 @dataclass
@@ -176,7 +177,7 @@ def _run_locked(
          json.dumps(cfg.resolved(), sort_keys=True, default=str),
          universe_size, len(passers), variant),
     )
-    run_id = int(cur.lastrowid)
+    run_id = int(cur.lastrowid)  # type: ignore[arg-type]
 
     conn.executemany(
         "INSERT INTO gate_result "

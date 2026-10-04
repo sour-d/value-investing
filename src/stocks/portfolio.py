@@ -25,7 +25,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import db
-from .config import Config, load as load_config
+from .config import Config
+from .config import load as load_config
 
 
 class PortfolioError(Exception):
@@ -40,7 +41,7 @@ class IntegrityError(PortfolioError):
 
 
 def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat()
+    return dt.datetime.now(dt.UTC).isoformat()
 
 
 def _require_symbol(conn: sqlite3.Connection, symbol: str) -> str:
@@ -145,7 +146,7 @@ def record_transaction(
          override_integrity.strip() if override_integrity else None, _now()),
     )
     conn.commit()
-    return int(cur.lastrowid)
+    return int(cur.lastrowid)  # type: ignore[arg-type]
 
 
 # ───────────────────────────────────────────────────────────── positions ────
@@ -190,7 +191,7 @@ def integrity_ledger(conn: sqlite3.Connection, cfg: Config, symbol: str
     Every required check is listed even when no row exists, so an unattested
     check reads as `unknown` rather than vanishing from the list.
     """
-    _, rows = integrity_status(conn, cfg, symbol.upper())
+    _, _rows = integrity_status(conn, cfg, symbol.upper())
     out: list[dict[str, Any]] = []
     for r in conn.execute(
         "SELECT check_name, status, evidence, verified_at FROM integrity_check "
@@ -220,13 +221,14 @@ def _prices(conn: sqlite3.Connection) -> dict[str, tuple[float, float]]:
         "  FROM price_daily"
         ") WHERE rn <= 2 ORDER BY symbol, rn"
     ).fetchall()
-    out: dict[str, tuple[float, float]] = {}
+    out: dict[str, tuple[float, float | None]] = {}
     for r in rows:
         if r["rn"] == 1:
             out[r["symbol"]] = (r["close"], None)
         else:
             out[r["symbol"]] = (out[r["symbol"]][0], r["close"])
-    return out
+    # mypy: after the loop all entries have both values filled
+    return out  # type: ignore[return-value]
 
 
 def positions(conn: sqlite3.Connection) -> list[Position]:
@@ -412,8 +414,9 @@ def pnl(
         ).fetchone()["f"])
         day = [p.day_change_pct for p in priced if p.day_change_pct is not None]
         if day:
-            out.day_change = sum(p.market_value * p.day_change_pct / 100 for p in priced
-                                 if p.day_change_pct is not None)
+            # mypy: priced filters None day_change_pct, but market_value still float | None
+            out.day_change = sum((p.market_value or 0.0) * p.day_change_pct / 100
+                                 for p in priced if p.day_change_pct is not None)
 
         unpriced = [p.symbol for p in pos if p.market_value is None]
         if unpriced:

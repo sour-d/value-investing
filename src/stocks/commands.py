@@ -7,7 +7,8 @@ command's behaviour is testable on its own.
 from __future__ import annotations
 
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def _pending(name: str) -> int:
@@ -82,14 +83,6 @@ def cmd_health(args: Any) -> int:
     return 1 if report.worst == health.BAD else 0
 
 
-@_impl("journal")
-def cmd_journal(args: Any) -> int:
-    from . import journal
-
-    print(journal.write_today(db_path=args.db))
-    return 0
-
-
 @_impl("screen")
 def cmd_screen(args: Any) -> int:
     from . import screencmd
@@ -102,9 +95,9 @@ def cmd_screen(args: Any) -> int:
               human=lambda p: screencmd.explain(symbol, db_path=args.db))
         return 0
 
-    result = screencmd.run(full=args.full, db_path=args.db,
-                           use_roic=getattr(args, "roic", None))
-    _emit(result.payload(), getattr(args, "json", False), human=lambda _: result.render())
+    run_result = screencmd.run(full=args.full, db_path=args.db,
+                              use_roic=getattr(args, "roic", None))
+    _emit(run_result.payload(), getattr(args, "json", False), human=lambda _: run_result.render())
     return 0
 
 
@@ -216,7 +209,8 @@ def cmd_why(args: Any) -> int:
 @_impl("integrity")
 def cmd_integrity(args: Any) -> int:
     """Attest Gate 5 checks, record verdicts and qualitative assessments."""
-    from . import config as config_mod, db, judgment
+    from . import config as config_mod
+    from . import db, judgment
     from .cli import _emit
 
     conn = db.connect(args.db)

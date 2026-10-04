@@ -226,6 +226,9 @@ def gate3(m: M.Metrics, cfg: Config, use_roic: bool | None = None) -> list[GateR
                 "capital. Set valuation.inputs.risk_free_rate if WACC is missing",
                 op=">="))
         else:
+            # mypy: roic_spread is float | None, but the guard above ensures both
+            # roic and wacc are present, so it was computed and is a float.
+            assert m.roic_spread is not None
             spread_ok = m.roic_spread >= spread_min
             out.append(GateResult(
                 "G3", "roic_wacc_spread", spread_ok, "roic_spread", m.roic_spread,

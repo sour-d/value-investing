@@ -103,7 +103,7 @@ def test_every_command_has_a_handler():
 
     commands = importlib.import_module("stocks.commands")
     parser = cli.build_parser()
-    missing = [c for c in parser._subparsers._group_actions[0].choices  # noqa: SLF001
+    missing = [c for c in parser._subparsers._group_actions[0].choices
                if getattr(commands, f"cmd_{c}", None) is None]
     assert missing == []
 

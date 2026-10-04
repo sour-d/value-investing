@@ -78,7 +78,7 @@ def test_price_coverage_flags_missing_symbol(conn):
 
 def test_stale_data_is_warn_not_bad(conn):
     """Stale data is recoverable by syncing; missing data is not."""
-    old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=30)).isoformat()
+    old = (dt.datetime.now(dt.UTC) - dt.timedelta(days=30)).isoformat()
     conn.execute("INSERT INTO fetch_log (ts,source,kind,ok,n_items) VALUES (?,?,?,1,1)",
                  (old, "fake", "prices"))
     conn.commit()
@@ -132,7 +132,7 @@ def test_missing_risk_free_rate_is_bad(conn):
 
 def test_stale_risk_free_rate_is_warned(conn, tmp_path, monkeypatch):
     cfg = _cfg(**{"valuation.inputs.stale_after_days": 1})
-    old = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=10)
+    old = dt.datetime.now(dt.UTC) - dt.timedelta(days=10)
     monkeypatch.setattr(health.paths, "config_path",
                         lambda: tmp_path / "screen.toml")
     (tmp_path / "screen.toml").write_text("")
@@ -195,12 +195,11 @@ def test_never_screened_is_warned(conn):
 
 
 def test_recent_screen_is_ok(conn):
-    from datetime import timezone
     conn.execute(
         "INSERT INTO screen_run (started_at,finished_at,config_hash,config_json) "
         "VALUES (?,?,?,?)",
-        (dt.datetime.now(timezone.utc).isoformat(),
-         dt.datetime.now(timezone.utc).isoformat(), "h", "{}"),
+        (dt.datetime.now(dt.UTC).isoformat(),
+         dt.datetime.now(dt.UTC).isoformat(), "h", "{}"),
     )
     conn.commit()
     assert _named(health.build(cfg=_cfg(), conn=conn), "screen run").status == health.OK

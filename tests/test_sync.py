@@ -116,10 +116,10 @@ def test_failed_fetch_does_not_count_as_fresh(conn):
 
 def test_stale_threshold_is_respected(conn):
     """Prices go stale after 20h; fundamentals after 7 days."""
-    old = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=30)).isoformat()
+    old = (dt.datetime.now(dt.UTC) - dt.timedelta(hours=30)).isoformat()
     conn.execute("INSERT INTO fetch_log (ts,source,kind,ok,n_items) VALUES (?,?,?,1,1)",
                  (old, "fake", "prices"))
-    recent = dt.datetime.now(dt.timezone.utc).isoformat()
+    recent = dt.datetime.now(dt.UTC).isoformat()
     conn.execute("INSERT INTO fetch_log (ts,source,kind,ok,n_items) VALUES (?,?,?,1,1)",
                  (recent, "fake", "financials"))
     conn.commit()
@@ -129,13 +129,13 @@ def test_stale_threshold_is_respected(conn):
 
 
 def test_stale_days_boundary(conn):
-    just_inside = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=6)).isoformat()
+    just_inside = (dt.datetime.now(dt.UTC) - dt.timedelta(days=6)).isoformat()
     conn.execute("INSERT INTO fetch_log (ts,source,kind,ok,n_items) VALUES (?,?,?,1,1)",
                  (just_inside, "fake", "financials"))
     conn.commit()
     assert not sync.plan(conn, _cfg()).financials
 
-    just_outside = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=8)).isoformat()
+    just_outside = (dt.datetime.now(dt.UTC) - dt.timedelta(days=8)).isoformat()
     conn.execute("UPDATE fetch_log SET ts = ? WHERE kind = 'financials'", (just_outside,))
     conn.commit()
     assert sync.plan(conn, _cfg()).financials

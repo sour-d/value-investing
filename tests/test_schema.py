@@ -70,7 +70,7 @@ def test_transactions_are_append_only(conn):
 
 def test_transaction_reason_is_required(conn):
     _seed_universe(conn, "ACC")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         conn.execute(
             "INSERT INTO transactions (ts,symbol,side,qty,price,reason,recorded_at) "
             "VALUES ('2026-01-02','ACC','BUY',10,100.0,'   ','2026-01-02')"
@@ -80,7 +80,7 @@ def test_transaction_reason_is_required(conn):
 def test_transaction_checks_positive_qty_and_price(conn):
     _seed_universe(conn, "ACC")
     for qty, price in ((0, 100.0), (10, 0.0), (-5, 100.0)):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             conn.execute(
                 "INSERT INTO transactions (ts,symbol,side,qty,price,reason,recorded_at) "
                 "VALUES ('2026-01-02','ACC','BUY',?,?,'x','2026-01-02')",
@@ -148,7 +148,7 @@ def test_fundamentals_period_is_a_column_not_a_position(conn):
 
 def test_symbol_issue_severity_is_constrained(conn):
     _seed_universe(conn, "BAGMANE")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         conn.execute(
             "INSERT INTO symbol_issue (symbol,code,severity,detected_at) "
             "VALUES ('BAGMANE','no_financials','fatal','2026-10-01')"

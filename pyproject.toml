@@ -29,3 +29,9 @@ addopts = "-q"
 
 [tool.uv]
 package = true
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "ruff>=0.16.10",
+]

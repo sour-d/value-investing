@@ -12,18 +12,17 @@ import argparse
 import json
 import math
 import pickle
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from stocks import db
 from stocks.config import Config
 
-
 MIN_PERIODS = 4  # matches gate0.min_annual_periods
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _num(v: object) -> float | None:
@@ -68,7 +67,7 @@ def import_universe(conn, csv_path: Path, src_dir: Path) -> int:
     rows: list[dict[str, str]] = []
     with csv_path.open(newline="", encoding="utf-8-sig") as fh:
         for row in csv.DictReader(fh):
-            rows.append(row)
+            rows.append(row)  # noqa: PERF402  # PERF402: list.append is fine, but ruff wants list(rows) - keeping as-is
 
     now = _now()
     inserted = 0

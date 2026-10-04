@@ -90,7 +90,7 @@ def _f(v: Any) -> float | None:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    if f != f or f in (float("inf"), float("-inf")):  # NaN / inf
+    if f != f or f in (float("inf"), float("-inf")):  # NaN / inf  # noqa: PLR0124
         return None
     return f
 
@@ -117,7 +117,7 @@ class YahooProvider:
     name = "yahoo"
 
     def __init__(self, chunk: int = 40) -> None:
-        import yfinance as yf
+        import yfinance as yf  # type: ignore[import-untyped]
 
         self._yf = yf
         self.chunk = chunk
@@ -135,7 +135,7 @@ class YahooProvider:
                 threads=True,
             )
             for wire in batch:
-                bare = wire[: -len(NSE_SUFFIX)] if wire.endswith(NSE_SUFFIX) else wire
+                bare = wire.removesuffix(NSE_SUFFIX)
                 sub = None
                 if frame is not None and not frame.empty:
                     try:
@@ -148,7 +148,7 @@ class YahooProvider:
     def quotes(self, symbols: list[str]) -> dict[str, Quote]:
         out: dict[str, Quote] = {}
         tickers = self._yf.Tickers(" ".join(wire_symbol(s) for s in symbols))
-        today = dt.date.today().isoformat()
+        today = dt.date.today().isoformat()  # noqa: DTZ011
         for bare in symbols:
             wire = wire_symbol(bare)
             try:
@@ -280,6 +280,6 @@ def _to_financials(symbol: str, reports: Any) -> Financials:
                     period_sets.setdefault(stmt, []).append(p)
         if rows:
             statements[stmt] = rows
-    for stmt in period_sets:
-        period_sets[stmt] = sorted(set(period_sets[stmt]))
+    for stmt, periods in period_sets.items():
+        period_sets[stmt] = sorted(set(periods))
     return Financials(symbol, statements, period_sets)

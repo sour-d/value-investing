@@ -9,8 +9,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from . import __version__
 from .judgment import DIMENSIONS, STATUS_ORDER

@@ -16,18 +16,19 @@ import sqlite3
 from dataclasses import dataclass, field
 
 from . import db, paths
-from .config import Config, load as load_config
+from .config import Config
+from .config import load as load_config
 from .providers import Provider, YahooProvider
 
 ONE_YEAR_BACK = "2y"  # yfinance interval shorthand; ~2 calendar years of bars
 
 
 def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    return dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
 
 def _today() -> str:
-    return dt.date.today().isoformat()
+    return dt.date.today().isoformat()  # noqa: DTZ011
 
 
 def _hours_since(ts: str | None) -> float | None:
@@ -38,8 +39,8 @@ def _hours_since(ts: str | None) -> float | None:
     except ValueError:
         return None
     if then.tzinfo is None:
-        then = then.replace(tzinfo=dt.timezone.utc)
-    return (dt.datetime.now(dt.timezone.utc) - then).total_seconds() / 3600.0
+        then = then.replace(tzinfo=dt.UTC)
+    return (dt.datetime.now(dt.UTC) - then).total_seconds() / 3600.0
 
 
 def _days_since(ts: str | None) -> float | None:
@@ -286,7 +287,7 @@ def _upsert_profile(conn: sqlite3.Connection, symbol: str, as_of: str,
             f = float(v)
         except (TypeError, ValueError):
             return None
-        return None if f != f or f in (float("inf"), float("-inf")) else f
+        return None if f != f or f in (float("inf"), float("-inf")) else f  # noqa: PLR0124
 
     values: list[object] = [symbol, as_of]
     for col in cols:
@@ -394,7 +395,7 @@ def run(db_path=None, full: bool = False, provider: Provider | None = None,
 def _window() -> tuple[str, str]:
     """Two calendar years of bars, so 52-week maths has room."""
     end = _today()
-    start = (dt.date.today() - dt.timedelta(days=760)).isoformat()
+    start = (dt.date.today() - dt.timedelta(days=760)).isoformat()  # noqa: DTZ011
     return start, end
 
 

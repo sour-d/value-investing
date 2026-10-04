@@ -17,13 +17,13 @@ what the data supports from what a human asserted.
 
 from __future__ import annotations
 
-import datetime as dt
 import sqlite3
 from typing import Any
 
 from . import db, portfolio
-from .config import Config, load as load_config
-from .portfolio import PortfolioError, _require_symbol, _now
+from .config import Config
+from .config import load as load_config
+from .portfolio import PortfolioError, _now, _require_symbol
 
 # Ordered so the strongest rejection is reported first: "avoid" outranks "watch".
 STATUS_ORDER = ("held", "buy", "researching", "watch", "avoid", "done")
@@ -287,7 +287,7 @@ def why_payload(symbol: str, db_path: str | None = None,
     would make a six-month-old opinion look current.
     """
     from . import metrics as M
-    from . import screen, screencmd
+    from . import screen
 
     cfg = cfg or load_config()
     own = conn is None

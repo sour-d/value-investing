@@ -25,7 +25,8 @@ from pathlib import Path
 from typing import Any
 
 from . import db, paths
-from .config import Config, load as load_config
+from .config import Config
+from .config import load as load_config
 
 # Reading budget. Exceeding it costs the least decision-relevant line, so this
 # is a cap on output width, not on information.
@@ -54,7 +55,7 @@ class DailyResult:
 
 
 def _today() -> str:
-    return dt.date.today().isoformat()
+    return dt.date.today().isoformat()  # noqa: DTZ011
 
 
 def _n_clean(conn: sqlite3.Connection) -> int:
@@ -160,7 +161,8 @@ def build(
     result = DailyResult(date=_today())
     try:
         from . import health as health_mod
-        from . import screencmd, sync as sync_mod
+        from . import screencmd
+        from . import sync as sync_mod
 
         if do_sync:
             # Deliberately not run with full=True: only stale data is fetched,
@@ -245,7 +247,7 @@ def compose(
             pct = f" ({rep.unrealised_pct:+.1f}%)" if rep.unrealised_pct is not None else ""
             lines.append(f"held: {len(held)} names · {rep.unrealised:+,.0f}{pct} unrealised")
             for n in rep.notes:
-                dropped.append(n)
+                dropped.append(n)  # noqa: PERF402
         except Exception:  # noqa: BLE001
             lines.append(f"held: {len(held)} name(s)")
 
