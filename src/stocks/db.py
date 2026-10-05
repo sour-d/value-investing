@@ -47,6 +47,11 @@ _ADDITIVE_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # which matches the pre-Phase-5 behaviour: every check was blocking. Their
     # deltas remain as recorded rather than being silently reinterpreted.
     ("gate_result", "blocking", "INTEGER NOT NULL DEFAULT 1"),
+    # Roster provenance. `added_on` records when *this database* first saw a
+    # symbol, which is not the same fact as when the index added it. These two
+    # carry the membership claim so the two can be told apart.
+    ("universe", "membership_source", "TEXT"),
+    ("universe", "membership_as_of", "TEXT"),
 )
 
 

@@ -89,7 +89,17 @@ def build_parser() -> argparse.ArgumentParser:
         "ingest",
         help="load what an MCP fetch put in data/inbox/ into the database",
     )
-    ingest.add_argument("--inbox", help="override the inbox directory")
+    ingest.add_argument("--inbox", type=Path, default=None,
+                        help="override the inbox directory")
+    universe_p = sub.add_parser(
+        "universe",
+        help="validate the index roster and report membership drift",
+    )
+    universe_p.add_argument("--roster", type=Path, default=None,
+                            help="override the roster file "
+                                 "(default: universe/smcap250.json)")
+    universe_p.add_argument("--apply", action="store_true",
+                            help="reconcile universe membership; refused on errors")
     sub.add_parser(
         "export",
         help="write git-tracked analysis output to analysis/ for future runs",

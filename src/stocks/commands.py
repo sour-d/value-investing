@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,11 @@ from typing import Any
 def _pending(name: str) -> int:
     print(f"'stocks {name}' is not built yet — see the roadmap in AGENTS.md")
     return 3
+
+
+def _today() -> str:
+    """Date only. Membership and rebalance facts are dated, not timestamped."""
+    return datetime.now(UTC).date().isoformat()
 
 
 def _impl(name: str) -> Callable[[Callable[[Any], int]], Callable[[Any], int]]:
@@ -113,6 +119,65 @@ def cmd_ingest(args: Any) -> int:
 
     _emit(counts, getattr(args, "json", False), human=human)
     return 0
+
+
+@_impl("universe")
+def cmd_universe(args: Any) -> int:
+    """Validate the roster and report membership drift.
+
+    Read-only by default: this is the check to run *before* a screen, because a
+    stale or short roster produces plausible results for the wrong companies.
+    ``--apply`` reconciles membership, and is refused while the roster has
+    errors.
+    """
+    from . import roster as roster_mod
+    from .cli import _emit
+
+    try:
+        parsed, findings, detail = roster_mod.reconcile_file(
+            getattr(args, "roster", None), _today(), getattr(args, "db", None)
+        )
+    except FileNotFoundError as e:
+        print(f"roster not found: {e}", file=sys.stderr)
+        print("No MCP server exposes index constituents, so the roster is a",
+              file=sys.stderr)
+        print("committed file. Create it, then re-run.", file=sys.stderr)
+        return 1
+
+    errors = roster_mod.has_errors(findings)
+    applied = None
+    if getattr(args, "apply", False):
+        if errors:
+            print("refusing to apply: fix the findings below first", file=sys.stderr)
+        else:
+            from . import db
+
+            conn = db.connect(getattr(args, "db", None))
+            try:
+                db.apply_schema(conn)
+                applied = roster_mod.apply_roster(conn, parsed, _today())
+            finally:
+                conn.close()
+
+    payload = {
+        "index_code": parsed.index_code,
+        "source": parsed.source,
+        "effective": parsed.effective,
+        "constituents": len(parsed.constituents),
+        "declared_size": parsed.declared_size,
+        "findings": [f.__dict__ for f in findings],
+        "errors": errors,
+        "entrants": detail["entrants"],
+        "removals": detail["removals"],
+        "coverage": detail["coverage"],
+        "applied": applied,
+    }
+
+    def human(_: dict) -> str:
+        return roster_mod.format_report(parsed, findings, detail)
+
+    _emit(payload, getattr(args, "json", False), human=human)
+    return 1 if errors else 0
 
 
 @_impl("export")

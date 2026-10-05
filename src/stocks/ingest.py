@@ -195,13 +195,32 @@ def _ensure_symbol(conn, symbol: str) -> bool:
 
 
 def ingest_universe(conn, payload: Any) -> int:
-    """Upsert the roster. Symbols are never deleted; ``in_index`` is the flag."""
+    """Upsert the roster. Symbols are never deleted; ``in_index`` is the flag.
+
+    A *roster* — a payload that claims to describe the complete membership —
+    is reconciled through :mod:`stocks.roster`, so it is validated first and
+    names it omits are marked out rather than lingering as members forever.
+    A bare list of symbols is treated as an additive mention and demotes
+    nobody, because "here are some symbols I saw" is not a statement that
+    everyone else left the index.
+    """
     rows = _read(payload)
     if not rows:
         return 0
     if isinstance(rows, dict):
         rows = [{"symbol": key, **(value if isinstance(value, dict) else {})}
                 for key, value in rows.items()]
+
+    from . import roster as roster_mod
+
+    is_roster = isinstance(payload, dict) and bool(
+        payload.get("constituents") or payload.get("declared_size") or payload.get("source")
+    )
+    if is_roster:
+        parsed = roster_mod.parse(payload)
+        roster_mod.apply_roster(conn, parsed, _now())
+        return len(parsed.constituents)
+
     now = _now()
     n = 0
     for row in rows:
@@ -213,14 +232,15 @@ def ingest_universe(conn, payload: Any) -> int:
         if not symbol:
             continue
         conn.execute(
-            "INSERT INTO universe (symbol, name, industry, sector, in_index, added_on) "
-            "VALUES (?,?,?,?,?,?) "
+            "INSERT INTO universe (symbol, name, isin, industry, sector, in_index, added_on) "
+            "VALUES (?,?,?,?,?,?,?) "
             "ON CONFLICT(symbol) DO UPDATE SET "
             "  name=COALESCE(excluded.name, universe.name), "
+            "  isin=COALESCE(excluded.isin, universe.isin), "
             "  industry=COALESCE(excluded.industry, universe.industry), "
             "  sector=COALESCE(excluded.sector, universe.sector), "
             "  in_index=excluded.in_index, removed_on=NULL",
-            (symbol, row.get("name"), row.get("industry"), row.get("sector"),
+            (symbol, row.get("name"), row.get("isin"), row.get("industry"), row.get("sector"),
              int(row.get("in_index", 1)), now),
         )
         n += 1
