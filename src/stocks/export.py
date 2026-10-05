@@ -34,6 +34,7 @@ re-running the screen inside noise.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -304,11 +305,21 @@ def _runs_entry(conn) -> str:
     ]) + "\n"
 
 
+def _run_id_of(entry: str) -> int | None:
+    """The run number in a `## Run #<id>` heading, or None if unrecognised."""
+    m = re.match(r"## Run #(\d+)\b", entry)
+    return int(m.group(1)) if m else None
+
+
 def _update_runs(path: Path, entry: str) -> Path:
     """Rewrite the run log with the newest run first.
 
     Truncated at the 100 most recent runs: the file is committed to git, and an
     append-only log that grows forever makes every future diff expensive.
+
+    Deduplicated by run number. Exporting twice without an intervening screen
+    re-emits the same run, and keeping both copies made the committed log claim
+    a run happened twice.
     """
     existing = path.read_text() if path.exists() else "# Screen runs\n"
     header = "# Screen runs"
@@ -316,7 +327,18 @@ def _update_runs(path: Path, entry: str) -> Path:
     entries = ["## " + part.rstrip() for part in parts[1:]] if len(parts) > 1 else []
     if entry:
         entries.insert(0, entry.rstrip())
-    body = "\n\n".join([header, *entries[:100]]) + "\n"
+    seen: set[int] = set()
+    unique: list[str] = []
+    for item in entries:
+        run_id = _run_id_of(item)
+        if run_id is None:
+            unique.append(item)
+            continue
+        if run_id in seen:
+            continue
+        seen.add(run_id)
+        unique.append(item)
+    body = "\n\n".join([header, *unique[:100]]) + "\n"
     return _write(path, body)
 
 

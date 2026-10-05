@@ -279,6 +279,40 @@ def test_first_run_does_not_claim_everyone_entered(conn, tmp_path):
     )
 
 
+def test_exporting_twice_does_not_duplicate_a_run(conn, tmp_path):
+    """runs.md is the durable record of what each run concluded.
+
+    Exporting twice with no screen in between re-emits the same run, and the
+    duplicate section made the log claim a run happened twice.
+    """
+    conn.execute(
+        "INSERT INTO screen_run "
+        "(run_id,started_at,finished_at,config_hash,config_json,universe_size,n_clean,notes) "
+        "VALUES (1,'2026-10-04','2026-10-04','cfg','{}',250,9,'roic')")
+    out = tmp_path / "out"
+    export.export_all(_path(conn), out)
+    export.export_all(_path(conn), out)
+    body = (out / "runs.md").read_text()
+    assert body.count("## Run #1") == 1, body
+
+
+def test_runs_log_keeps_one_section_per_run_after_duplicates(conn, tmp_path):
+    """A log already carrying a duplicate is repaired on the next export."""
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "runs.md").write_text(
+        "# Screen runs\n\n## Run #1 · 2026-10-04\n\n- a\n\n## Run #1 · 2026-10-04\n\n- a\n"
+    )
+    conn.execute(
+        "INSERT INTO screen_run "
+        "(run_id,started_at,finished_at,config_hash,config_json,universe_size,n_clean,notes) "
+        "VALUES (2,'2026-10-05','2026-10-05','cfg','{}',250,9,'roic')")
+    export.export_all(_path(conn), out)
+    body = (out / "runs.md").read_text()
+    assert body.count("## Run #1") == 1, body
+    assert body.count("## Run #2") == 1, body
+
+
 def test_export_ratios_are_not_doubled(conn, tmp_path):
     """metrics returns percentages already; formatting must not multiply again."""
     conn.execute(
