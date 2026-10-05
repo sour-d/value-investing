@@ -1,6 +1,6 @@
 {
   "config_hash": "f0b7ddb6b434ad94a15c7b82d841c1e97ad1a9376697d6a0dbdbef63a35ed74e",
-  "exported_at": "2026-10-04T17:43:57+00:00",
+  "exported_at": "2026-10-05T04:45:23+00:00",
   "n_clean": 9,
   "non_blocking_notes": {
     "AARTIIND": "ROE 7.86 below 13",
@@ -141,7 +141,7 @@
     "NAVA",
     "ZENSARTECH"
   ],
-  "run_id": 1,
-  "run_started_at": "2026-10-04T17:40:39+00:00",
-  "universe_size": 251
+  "run_id": 3,
+  "run_started_at": "2026-10-05T04:43:58+00:00",
+  "universe_size": 250
 }

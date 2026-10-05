@@ -1,6 +1,6 @@
 # Passers
 
-Run #1 · 2026-10-04 · 9 cleared every gate
+Run #3 · 2026-10-05 · 9 cleared every gate
 Config `f0b7ddb6b434`
 
 > A passer is a research candidate, not a buy. Quality gates exclude the
