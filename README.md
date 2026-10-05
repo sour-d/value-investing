@@ -97,3 +97,18 @@ If you touched metrics.py, screen.py or portfolio.py, also inspect the relevant 
 - **Evidence:** `research.json` → `qualitative_assessment`, `valuation_assumption`, `research_verdict` (no extra `research` table). Sell-side targets are deliberately not stored (test-enforced).
 - **No auto-fetch:** No network in ingest. `universe.json` in inbox must come from MCP or be the committed roster reconciled. Pilot artefacts (`/tmp/opencode/*`) exist only for the pinned test and are skipped if absent.
 - **Ledger:** `transactions` append-only; views derived. Gate 5 (`integrity_check`) blocks buys until attested or explicitly overridden with an auditable reason.
+
+## Slash commands (opencode)
+
+Project-level slash commands live in `.opencode/commands/`. If you're running opencode inside this repository, typing `/` will show them. If they don't appear in an existing session, restart opencode in this workspace.
+
+| Command | What it does |
+|---|---|
+| `/screen` | Runs the daily habit (inspect, universe, ingest if inbox has JSON, screen, export, health) and reports only deltas. |
+| `/fetch` | Uses MCP (`india-stock`, `yfinance`, `websearch`) to populate `data/inbox/` for missing coverage. |
+| `/health` | Quick roster + staleness + blockers summary. |
+| `/reconcile` | Validates and reconciles roster membership (`stocks universe` / `--apply`). |
+| `/thesis` | Buffett-style analysis on passers; writes thesis files + `research.json` fragments. |
+| `/buy` | Records a buy (append-only ledger). |
+| `/sell` | Records a sell (append-only ledger). |
+| `/pnl` | Shows positions and P&L. |
