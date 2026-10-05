@@ -1,185 +1,99 @@
-# stocks
+# Stocks (AI-agent operated)
 
-A screening, journaling and portfolio toolkit for NIFTY SMALLCAP 250 equities.
+This is an AI-agent–driven screening and thesis tracker for NIFTY SMALLCAP 250 equities. The `uv run stocks ...` commands are deterministic primitives; the agent is the user that sequences them. Durable memory lives in `analysis/` (git-tracked) and `journal/`/`thesis/` (git-tracked); `data/` is a disposable cache.
 
-**This repo is driven by an AI agent, not by a human at a terminal.** You bring
-the data — via the `india-stock`, `yfinance` and `websearch` MCP servers. This
-repo supplies the part that must be deterministic: gates, metrics, a portfolio
-ledger, and a durable record of what every run concluded.
+## First time, from a clean clone
 
-```
-MCP fetch  →  data/inbox/*.json  →  stocks ingest  →  SQLite  →  stocks screen  →  stocks export  →  analysis/*.md
-```
+For an agent encountering this repo for the first time, start here.
 
-The Python never touches the network on the ingest path. Ingestion is a pure,
-replayable function of what is on disk, so any run can be reproduced from the
-inbox alone.
-
-## Setup
-
-```bash
-uv sync
-uv run stocks init      # create the schema; safe to re-run
-uv run stocks inspect   # what is stored, and how fresh
+```text
+Load skill: stocks-repo
 ```
 
-That is the whole setup. There is no bundled dataset and nothing to download —
-a fresh clone is a working repo with an empty database, which is the correct
-starting state.
+Prompt the agent with something like:
 
-## The loop
-
-### 1. Read before you refetch
-
-```bash
-uv run stocks inspect                # counts, latest price date, latest run
-uv run stocks health                 # staleness and data-quality flags
-uv run stocks screen --explain ACC   # every gate, metric and threshold
+```text
+Load stocks-repo. Summarise the loop (inspect → fetch via MCP → ingest → screen → export), state where data/inbox lives, what must never be stored (sell-side targets), and the clean-symbol rule (passed=0 AND blocking=1). Do not modify anything. Report back in <4 lines.
 ```
 
-A 251-symbol fundamentals fetch takes minutes. Most questions are already
-answered in milliseconds. Fetch only the gap.
+## Daily habit (run every day/after refresh)
 
-### 2. Fetch via MCP, write to `data/inbox/`
+Treat this as a checklist the agent must follow, not a script to edit. Have it load `stock-screen-method` and `stock-data-integrity` if staleness is in question.
 
-The inbox shapes **match the MCP responses verbatim** — no number conversion,
-only key choice. Symbols are keyed by bare NSE ticker (`ACC`, not `ACC.NS`).
-
-| File | Source tool | Shape |
-|---|---|---|
-| `universe.json` | your index list | `[{"symbol": "ACC", "name": ..., "industry": ...}]` |
-| `profile.json` | `india-stock_get_fundamentals` | `{"ACC": {"financialData": {...}, "keyStats": {...}, "summaryDetail": {...}}}` |
-| `fundamentals.json` | `yfinance_get_financials` | `{"ACC": {"income_statement": {"Total Revenue": {"2026-03-31": 2.5e11}}}}` |
-| `prices.json` | `india-stock_get_historical` | `{"ACC": {"data": [{"date": ..., "close": ...}]}}` |
-| `research.json` | `websearch` findings | see below |
-
-Every file is optional and independently replaceable, so a refresh writes only
-what was actually fetched.
-
-The three-way cascade — stop at the first server that answers:
-
-1. **`india-stock`** — Indian market. Best ratios. Bare symbols.
-2. **`yfinance`** — full statements. Suffix symbols (`ACC.NS`).
-3. **`websearch`** — promoter pledge, auditor changes, related-party
-   transactions, regulatory action, management commentary, industry structure.
-   Neither market-data server has any of this.
-
-> `yfinance_get_price_history` returns a **markdown table**, not JSON. For
-> machine-readable bars use `india-stock_get_historical`.
-
-### 3. Ingest and screen
-
-```bash
-uv run stocks ingest        # reports per-file counts
-uv run stocks screen        # evaluate every gate, persist the run
-uv run stocks export        # write the git-tracked record
+```text
+Load stocks-repo. Then:
+1. uv run stocks inspect
+2. Check for missing fundamentals: uv run stocks universe
+3. Fetch any missing roster/profile/fundamentals/prices/research via MCP into data/inbox/*.json using the data-acquisition skill (respect the inbox schema: universe.json, profile.json, fundamentals.json, prices.json, research.json). Do not call yfinance_price_history for large ranges; use india-stock_get_historical.
+4. uv run stocks ingest; uv run stocks screen; uv run stocks export
+5. uv run stocks health and list any symbol_issue severity=block
+6. Summarise passers count, new/removed vs last run, and anything that would block buys. Return only deltas.
 ```
 
-Re-ingesting is idempotent — everything upserts on natural keys, so a corrected
-symbol is replaced rather than duplicated.
+## Roster (reference data — must be correct)
 
-### 4. Reason, then record
+NSE index constituents have no exposed MCP feed. Validate the committed roster before screening.
 
-A passer is a research candidate, **not a buy**. Gates are necessary, not
-sufficient: the pilot run cleared three names through every gate that were still
-bad buys.
-
-Write the judgement down so the next session starts from your conclusion:
-
-```bash
-uv run stocks watch ACC --buy-line 1800 --fv-low 2200 --fv-high 2600 \
-    --reason "why this level" --thesis thesis/ACC.md
-uv run stocks export
+```text
+Load stocks-repo. Run: uv run stocks universe
+If it reports errors (size_mismatch, duplicate_name/isin/symbol, placeholder_row, no_source), stop and fix universe/smcap250.json. If only warnings, reconcile membership: uv run stocks universe --apply (refused on errors). Explain any removals or entrants in one line.
 ```
 
-Qualitative findings and valuation assumptions go through `research.json` →
-`stocks ingest`, landing in `qualitative_assessment`, `valuation_assumption` and
-`research_verdict`.
+If the index actually changed (rebalance), fix the JSON (set `effective` to the rebalance effective date, correct `source`, then `--apply`). Never delete database rows — demotion flips `in_index` and sets `removed_on`.
 
-## What is stored where
+## Data acquisition (which MCP to call)
 
-| Path | Tracked | Contents |
-|---|---|---|
-| `data/inbox/` | no | Raw MCP payloads. Re-fetchable. |
-| `data/stocks.db` | no | Working cache. Binary, gitignored. |
-| `analysis/` | **yes** | `passers.md`, `runs.md`, `watchlist.md`, `qualitative.md`, `integrity.md`, `latest.json` |
-| `journal/` | **yes** | Dated narrative of what happened and why. |
-| `thesis/` | **yes** | Per-symbol investment thesis. |
-| `screen.toml` | **yes** | Gate thresholds, each with a `# WHY`. |
-| `.opencode/skills/` | **yes** | One skill per job, so the agent knows what to do. |
+The agent must pick the right server. Use the `data-acquisition` skill for this.
 
-`data/` is disposable; `analysis/` is the memory. A run is only useful if the
-next one can remember it, which is why the conclusions are committed and the
-binary cache is not.
+```text
+Load data-acquisition. For the symbols reported as uncovered by `stocks universe` / `stocks health`:
+- India-smallcap universe/metrics/ratios: use india-stock (search_funds only for MFs). Get quote, get_fundamentals, get_historical as needed. Map to profile.json/prices.json.
+- Full financial statements not present: use yfinance (get_financials, get_ticker_info) — write per-symbol fundamentals.json in the item-major shape: {item: {fy_end: value}}.
+- Integrity/evidence (promoter pledges, auditor changes, related-party, regulatory, mgmt commentary, industry): use websearch — write compact research.json excerpts with citations.
+- Never fabricate URLs. Write all payloads to data/inbox/ and do not transform numbers; ingest normalises them.
+```
 
-## Skills
+## Buffett-style screening & thesis
 
-The repo teaches the agent how to use it. Load the relevant one:
+Use `buffett-analysis` for judgement. It reads the 8 references under `.opencode/skills/buffett-analysis/references/` and writes only to `qualitative_assessment`, `valuation_assumption`, `research_verdict` (via `research.json`).
 
-| Skill | Use it for |
+```text
+Load buffett-analysis. Take the current passers (analysis/passers.md) and, for each, answer the eight questions: Circle of Competence, Moat, Management, Financials, Returns, Valuation, Risks, Verdict. For each symbol you keep, write a one-paragraph thesis to thesis/SYMBOL.md, propose fv_low/fv_high/buy_line (INR), and emit a research.json fragment covering qualitative_assessment + valuation_assumption + research_verdict. Do not import sell-side mean price/recommendations. Explain why fv excludes them.
+```
+
+## Record holdings & decisions
+
+`transactions` is append-only. Views (`positions`, `cost_basis`, `realised_pnl`, `cashflows`) are derived. Never UPDATE/DELETE `transactions`.
+
+```text
+Load stock-thesis. To record an initiated position: stocks buy SYMBOL --qty N --price P_INR --broker BROKER --notes "thesis anchor". To trim/exit: stocks sell SYMBOL --qty N --price P_INR --broker BROKER --notes "...". After any trade, run stocks pnl and stocks export. Show realised/unrealised against current holdings only.
+```
+
+## Quick sanity (after any change to gates/metrics/ingest/export)
+
+```text
+Run: uv run ruff check src scripts tests && uv run mypy src/stocks && uv run pytest -q
+If you touched metrics.py, screen.py or portfolio.py, also inspect the relevant tests that enforce: no sell-side targets stored; NaN -> NULL; clean_symbols uses (passed=0 AND blocking=1); percentage formatting not double-scaled.
+```
+
+## How this repo teaches an agent to use it
+
+| Skill | Purpose |
 |---|---|
-| `stocks-repo` | Orientation: the loop, the invariants, the ledger. **Read first.** |
-| `data-acquisition` | Which MCP server to use, the inbox contract, coverage gaps |
-| `stock-screen-method` | Gates, thresholds, ROIC vs ROE, why a name entered or left |
-| `buffett-analysis` | Moat, pricing power, management integrity, valuation, when to sell |
-| `stock-thesis` | Writing a thesis, setting a buy line, recording a verdict |
-| `stock-data-integrity` | Stale or missing data, vendor ratios, what needs filing verification |
+| `stocks-repo` | Loop, invariants, ledger, paths. **Load first.** |
+| `data-acquisition` | MCP cascade + inbox schema + coverage gaps |
+| `stock-screen-method` | Gates, ROIC/ROE nuance, why names move |
+| `buffett-analysis` | 8-question filter + references; writes to existing research tables only |
+| `stock-thesis` | Thesis, buy line, verdict, watchlist discipline |
+| `stock-data-integrity` | Staleness, `symbol_issue` (block), filing-verification needs, Gate 5 |
 
-## Design commitments
+## Repo facts (for the agent, not to repeat)
 
-- **A vendor ratio is a claim, not a fact.** Every ingested `profile_snapshot`
-  row lands with `trusted = 0`. Anything load-bearing needs a filings
-  cross-check.
-- **Sell-side targets are not stored.** `targetMeanPrice` is deliberately
-  ignored: it would anchor the valuation judgement this repo is supposed to make
-  independently. Enforced by a test.
-- **NaN means absent, not zero.** The vendor emits literal `NaN`; it becomes
-  `NULL`, and a period where every item is missing is dropped rather than
-  averaged in as zeros.
-- **Store raw, derive on read.** `fundamentals_annual` holds vendor values;
-  metrics are computed at query time. No derived metric is ever persisted as if
-  it were an input.
-- **The transaction ledger is append-only.** A mistake is corrected by appending
-  its inverse, never by editing or deleting.
-- **Live prices are not exported per symbol.** They change every session and
-  would bury the ratio movements that justify a re-run.
-- **A passer never becomes a verdict.** Anything load-bearing waits on Gate 5, a
-  human-attested integrity check that no provider can supply.
-
-## Commands
-
-Every command takes `--json` for unambiguous machine consumption.
-
-| Command | Purpose |
-|---|---|
-| `init` | Create the database and apply the schema |
-| `inspect` | What is stored, and how fresh |
-| `ingest` | Load `data/inbox/*.json` |
-| `screen` | Run or inspect the quantitative screen |
-| `export` | Write the git-tracked analysis record |
-| `health` | Staleness and data-quality report |
-| `sync` | Refresh stale data from the configured provider |
-| `buy` / `sell` / `pnl` | Append-only ledger and profit and loss |
-| `watch` | Manage the watchlist and buy lines |
-| `why` | Measured facts, thesis, and what is unverified |
-| `integrity` | Attest the manual Gate 5 checks |
-| `journal` | Write today's journal entry |
-
-`stocks` with no subcommand runs the whole daily habit: sync, screen, report
-the delta, write `journal/YYYY-MM-DD.md`.
-
-## Development
-
-```bash
-uv run pytest -q
-uv run ruff check src scripts tests
-uv run mypy src/stocks
-```
-
-`scripts/import_baseline.py` imports offline vendor artefacts
-(`smcap250.csv`, `info.json`, `fin.pkl`). It exists only to reproduce the pinned
-pilot result in `tests/test_pilot_reproduction.py`; those tests **skip** when the
-artefacts are absent. **New data must come through MCP.**
-
-See `AGENTS.md` for the invariants that must not be broken, and
-`.opencode/skills/` for how the agent is expected to work.
+- **Seam:** MCP → `data/inbox/*.json` → `stocks ingest` → `data/stocks.db` → `stocks screen` → `stocks export` → `analysis/*.md`.
+- **Roster:** `universe/smcap250.json` (committed). `stocks universe` validates and `--apply` reconciles without deleting history; `added_on` ≠ `membership_as_of`.
+- **Clean passers:** `screencmd.clean_symbols()` = symbols with gate rows and **no** row having `passed == 0 AND blocking == 1`. Do not filter on `blocking == 1` alone.
+- **Trust model:** `profile_snapshot.trusted = 0` by default; filing verification required for load-bearing items. `NaN` → `NULL`. Store raw, derive on read.
+- **Provenance:** `fundamentals_annual` carries `source` + `first_seen_at`/`last_seen_at`; `source` becomes `mcp` after ingest (do not leave legacy `yahoo-pilot`).
+- **Evidence:** `research.json` → `qualitative_assessment`, `valuation_assumption`, `research_verdict` (no extra `research` table). Sell-side targets are deliberately not stored (test-enforced).
+- **No auto-fetch:** No network in ingest. `universe.json` in inbox must come from MCP or be the committed roster reconciled. Pilot artefacts (`/tmp/opencode/*`) exist only for the pinned test and are skipped if absent.
+- **Ledger:** `transactions` append-only; views derived. Gate 5 (`integrity_check`) blocks buys until attested or explicitly overridden with an auditable reason.
